@@ -23,7 +23,7 @@ enum ConversionMatrix {
         case .zip, .tar, .gz, .rar:
             list = FileFormat.archives
         case .docx:
-            list = []
+            list = [.pdf, .txt]
         }
         return list.filter { $0 != source }
     }
