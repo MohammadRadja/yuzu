@@ -135,7 +135,7 @@ struct RedactImageToolView: View {
         let redactions = redactions
         ImageToolSupport.save(session, suffix: "redacted") {
             let output = ImageOps.redact(CIImage(cgImage: original), redactions: redactions)
-            guard let image = ImageToolSupport.cgImage(output) else { throw SatsumaError.encodeFailed("Rendering failed") }
+            guard let image = ImageToolSupport.cgImage(output) else { throw YuzuError.encodeFailed("Rendering failed") }
             return image
         }
     }

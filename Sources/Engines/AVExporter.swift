@@ -24,9 +24,9 @@ enum AVExporter {
         metadata: [AVMetadataItem]? = nil,
         progress: ((Double) -> Void)? = nil
     ) async throws {
-        guard let type = fileType(for: format) else { throw SatsumaError.unsupportedConversion(.mp4, format) }
+        guard let type = fileType(for: format) else { throw YuzuError.unsupportedConversion(.mp4, format) }
         guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
-            throw SatsumaError.encodeFailed("export session for \(format.displayName)")
+            throw YuzuError.encodeFailed("export session for \(format.displayName)")
         }
         session.outputURL = destination
         session.outputFileType = type
@@ -55,9 +55,9 @@ enum AVExporter {
         case .completed:
             progress?(1)
         case .cancelled:
-            throw SatsumaError.cancelled
+            throw YuzuError.cancelled
         default:
-            throw SatsumaError.encodeFailed(session.error?.localizedDescription ?? "export failed")
+            throw YuzuError.encodeFailed(session.error?.localizedDescription ?? "export failed")
         }
     }
 
@@ -67,7 +67,7 @@ enum AVExporter {
 
     private static func withPCMWriter(asset: AVAsset, to destination: URL, format: FileFormat, timeRange: CMTimeRange?, audioMix: AVAudioMix?, progress: ((Double) -> Void)?) async throws {
         let tracks = try await asset.loadTracks(withMediaType: .audio)
-        guard let track = tracks.first else { throw SatsumaError.invalidInput("No audio track found.") }
+        guard let track = tracks.first else { throw YuzuError.invalidInput("No audio track found.") }
         let duration = try await asset.load(.duration)
         try? FileManager.default.removeItem(at: destination)
         let reader = try AVAssetReader(asset: asset)
@@ -103,14 +103,14 @@ enum AVExporter {
         ])
         input.expectsMediaDataInRealTime = false
         writer.add(input)
-        guard reader.startReading() else { throw SatsumaError.encodeFailed(reader.error?.localizedDescription ?? "reader") }
-        guard writer.startWriting() else { throw SatsumaError.encodeFailed(writer.error?.localizedDescription ?? "writer") }
+        guard reader.startReading() else { throw YuzuError.encodeFailed(reader.error?.localizedDescription ?? "reader") }
+        guard writer.startWriting() else { throw YuzuError.encodeFailed(writer.error?.localizedDescription ?? "writer") }
         let start = timeRange?.start ?? .zero
         writer.startSession(atSourceTime: start)
         let total = CMTimeGetSeconds(timeRange?.duration ?? duration)
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let queue = DispatchQueue(label: "satsuma.pcm.writer")
+            let queue = DispatchQueue(label: "yuzu.pcm.writer")
             input.requestMediaDataWhenReady(on: queue) {
                 while input.isReadyForMoreMediaData {
                     if let sample = output.copyNextSampleBuffer() {
@@ -121,13 +121,13 @@ enum AVExporter {
                         input.markAsFinished()
                         if reader.status == .failed {
                             writer.cancelWriting()
-                            continuation.resume(throwing: SatsumaError.encodeFailed(reader.error?.localizedDescription ?? "reader"))
+                            continuation.resume(throwing: YuzuError.encodeFailed(reader.error?.localizedDescription ?? "reader"))
                         } else {
                             writer.finishWriting {
                                 if writer.status == .completed {
                                     continuation.resume()
                                 } else {
-                                    continuation.resume(throwing: SatsumaError.encodeFailed(writer.error?.localizedDescription ?? "writer"))
+                                    continuation.resume(throwing: YuzuError.encodeFailed(writer.error?.localizedDescription ?? "writer"))
                                 }
                             }
                         }

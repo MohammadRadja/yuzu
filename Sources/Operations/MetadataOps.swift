@@ -143,7 +143,7 @@ enum MetadataOps {
     }
 
     static func write(_ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL, progress: @escaping (Double) -> Void) async throws {
-        guard let format = FileFormat.detect(url) else { throw SatsumaError.unreadable(url) }
+        guard let format = FileFormat.detect(url) else { throw YuzuError.unreadable(url) }
         switch format.category {
         case .image:
             try writeImage(url, edits: edits, removeAll: removeAll, removeSensitive: removeSensitive, to: destination)
@@ -152,16 +152,16 @@ enum MetadataOps {
         case .document where format == .pdf:
             try writePDF(url, edits: edits, removeAll: removeAll, to: destination)
         default:
-            throw SatsumaError.invalidInput("Metadata editing is not supported for \(format.displayName).")
+            throw YuzuError.invalidInput("Metadata editing is not supported for \(format.displayName).")
         }
         progress(1)
     }
 
     private static func writeImage(_ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL) throws {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let type = CGImageSourceGetType(source) else { throw SatsumaError.unreadable(url) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let type = CGImageSourceGetType(source) else { throw YuzuError.unreadable(url) }
         let count = CGImageSourceGetCount(source)
         let outputType: CFString = ImageIOBridge.nativeEncoders.contains(type as String) ? type : (UTType.png.identifier as CFString)
-        guard let dest = CGImageDestinationCreateWithURL(destination as CFURL, outputType, count, nil) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard let dest = CGImageDestinationCreateWithURL(destination as CFURL, outputType, count, nil) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
         for index in 0..<count {
             var props = (CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]) ?? [:]
             if removeAll {
@@ -208,7 +208,7 @@ enum MetadataOps {
             if removeAll { options[kCGImageDestinationMergeMetadata] = false }
             CGImageDestinationAddImageFromSource(dest, source, index, options as CFDictionary)
         }
-        guard CGImageDestinationFinalize(dest) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard CGImageDestinationFinalize(dest) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 
     private static func groupDictionaryKey(_ group: String) -> CFString? {
@@ -270,6 +270,6 @@ enum MetadataOps {
             }
             document.documentAttributes = attrs
         }
-        guard document.write(to: destination) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard document.write(to: destination) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 }

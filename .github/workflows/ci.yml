@@ -44,11 +44,11 @@ jobs:
         run: |
           mkdir -p screenshots
           APP="$(brisk path)"
-          SATSUMA_SCREENSHOTS="$PWD/screenshots" perl -e 'alarm 600; exec @ARGV' "$APP/Contents/MacOS/Satsuma" || echo "screenshot driver exited $?"
+          YUZU_SCREENSHOTS="$PWD/screenshots" perl -e 'alarm 600; exec @ARGV' "$APP/Contents/MacOS/Yuzu" || echo "screenshot driver exited $?"
           sleep 5
           ls -la screenshots
           mkdir -p screenshots/crash
-          cp ~/Library/Logs/DiagnosticReports/Satsuma* screenshots/crash/ 2>/dev/null || true
+          cp ~/Library/Logs/DiagnosticReports/Yuzu* screenshots/crash/ 2>/dev/null || true
           for f in screenshots/crash/*; do [ -f "$f" ] && { echo "=== $f"; head -c 20000 "$f"; }; done; true
 
       - name: Upload screenshots
@@ -65,5 +65,5 @@ jobs:
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
-          name: Satsuma.app-${{ matrix.runner }}
-          path: .brisk/Archives/Satsuma.zip
+          name: Yuzu.app-${{ matrix.runner }}
+          path: .brisk/Archives/Yuzu.zip

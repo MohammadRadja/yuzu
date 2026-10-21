@@ -19,7 +19,7 @@ enum ImageIOBridge {
         if FileFormat.detect(url) == .svg {
             return try rasterizeSVG(url, maxPixelSize: maxPixelSize)
         }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw SatsumaError.unreadable(url) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw YuzuError.unreadable(url) }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let width = (properties[kCGImagePropertyPixelWidth] as? Int) ?? 0
         let height = (properties[kCGImagePropertyPixelHeight] as? Int) ?? 0
@@ -39,11 +39,11 @@ enum ImageIOBridge {
         DiagnosticLog.log("thumbnail failed, falling back to full decode")
         if let image = CGImageSourceCreateImageAtIndex(source, 0, nil) { return image }
         if let ns = NSImage(contentsOf: url), let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) { return cg }
-        throw SatsumaError.unreadable(url)
+        throw YuzuError.unreadable(url)
     }
 
     static func rasterizeSVG(_ url: URL, maxPixelSize: Int?) throws -> CGImage {
-        guard let image = NSImage(contentsOf: url) else { throw SatsumaError.unreadable(url) }
+        guard let image = NSImage(contentsOf: url) else { throw YuzuError.unreadable(url) }
         var size = image.size
         if size.width <= 0 || size.height <= 0 { size = CGSize(width: 1024, height: 1024) }
         let target = CGFloat(maxPixelSize ?? 2048)
@@ -53,13 +53,13 @@ enum ImageIOBridge {
             bitmapDataPlanes: nil, pixelsWide: Int(pixelSize.width), pixelsHigh: Int(pixelSize.height),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        ) else { throw SatsumaError.unreadable(url) }
+        ) else { throw YuzuError.unreadable(url) }
         rep.size = pixelSize
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         image.draw(in: CGRect(origin: .zero, size: pixelSize), from: .zero, operation: .copy, fraction: 1)
         NSGraphicsContext.restoreGraphicsState()
-        guard let cg = rep.cgImage else { throw SatsumaError.unreadable(url) }
+        guard let cg = rep.cgImage else { throw YuzuError.unreadable(url) }
         return cg
     }
 
@@ -79,11 +79,11 @@ enum ImageIOBridge {
 
     static func write(_ image: CGImage, to url: URL, format: FileFormat, quality: Double = 0.9, metadata: [CFString: Any]? = nil) throws {
         guard let type = format.utType, nativeEncoders.contains(type.identifier) else {
-            throw SatsumaError.encodeFailed("\(format.displayName) natively")
+            throw YuzuError.encodeFailed("\(format.displayName) natively")
         }
         DiagnosticLog.log("image write \(url.lastPathComponent) as \(type.identifier) quality=\(quality) metadata=\(metadata?.count ?? 0)")
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil) else {
-            throw SatsumaError.encodeFailed(url.lastPathComponent)
+            throw YuzuError.encodeFailed(url.lastPathComponent)
         }
         var options: [CFString: Any] = metadata ?? [:]
         if format == .jpg || format == .heic || format == .webp || format == .avif {
@@ -96,7 +96,7 @@ enum ImageIOBridge {
         }
         CGImageDestinationAddImage(destination, output, options as CFDictionary)
         DiagnosticLog.log("image added, finalizing")
-        guard CGImageDestinationFinalize(destination) else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard CGImageDestinationFinalize(destination) else { throw YuzuError.encodeFailed(url.lastPathComponent) }
         DiagnosticLog.log("image finalized \(url.lastPathComponent)")
     }
 
@@ -106,7 +106,7 @@ enum ImageIOBridge {
             return
         }
         DiagnosticLog.log("no native encoder for \(format.rawValue), using ffmpeg")
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-\(UUID().uuidString).png")
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: temp) }
         try write(image, to: temp, format: .png)
         try await encodeWithFFmpeg(png: temp, to: url, format: format, quality: quality)
@@ -129,7 +129,7 @@ enum ImageIOBridge {
         case .jpg:
             args += ["-f", "image2", "-c:v", "mjpeg", "-q:v", String(Int((1 - quality) * 30 + 2))]
         default:
-            throw SatsumaError.unsupportedConversion(.png, format)
+            throw YuzuError.unsupportedConversion(.png, format)
         }
         args.append(url.path)
         try await FFmpeg.run(args, purpose: "Encoding \(format.displayName)")
@@ -173,9 +173,9 @@ enum ImageIOBridge {
     }
 
     static func writePDF(images: [CGImage], to url: URL) throws {
-        guard let consumer = CGDataConsumer(url: url as CFURL) else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard let consumer = CGDataConsumer(url: url as CFURL) else { throw YuzuError.encodeFailed(url.lastPathComponent) }
         var mediaBox = CGRect(x: 0, y: 0, width: 612, height: 792)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw YuzuError.encodeFailed(url.lastPathComponent) }
         for image in images {
             let pointsWidth = CGFloat(image.width) * 72 / 150
             let pointsHeight = CGFloat(image.height) * 72 / 150
@@ -202,7 +202,7 @@ struct ImageEngine: ConversionEngine {
         case .pdf:
             try ImageIOBridge.writePDF(images: [image], to: request.destination)
         case .docx:
-            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-\(UUID().uuidString).png")
+            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-\(UUID().uuidString).png")
             defer { try? FileManager.default.removeItem(at: temp) }
             try ImageIOBridge.write(image, to: temp, format: .png)
             try await DocxWriter.write(paragraphs: [], images: [temp], to: request.destination)

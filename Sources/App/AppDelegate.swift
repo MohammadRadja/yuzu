@@ -29,18 +29,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "circle.hexagongrid.circle", accessibilityDescription: "Satsuma")
-            button.toolTip = "Satsuma: hold Shift while dragging a file"
+            button.image = NSImage(systemSymbolName: "circle.hexagongrid.circle", accessibilityDescription: "Yuzu")
+            button.toolTip = "Yuzu: hold Shift while dragging a file"
         }
         let menu = NSMenu()
         menu.addItem(withTitle: "Convert Files…", action: #selector(convertFiles), keyEquivalent: "o").target = self
         menu.addItem(withTitle: "Open Tool for Files…", action: #selector(openTool), keyEquivalent: "t").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
-        menu.addItem(withTitle: "About Satsuma", action: #selector(about), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "About Yuzu", action: #selector(about), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Show Logs", action: #selector(showLogs), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Satsuma", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Yuzu", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
     }
@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = []
         let window = SettingsWindow(contentViewController: controller)
-        window.title = "Satsuma Settings"
+        window.title = "Yuzu Settings"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func about() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Satsuma",
+            .applicationName: "Yuzu",
             .applicationVersion: "0.1.0",
             .credits: NSAttributedString(string: "The zero-click offline file converter.\nEverything happens locally on your Mac."),
         ])

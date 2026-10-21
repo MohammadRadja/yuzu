@@ -30,11 +30,11 @@ enum Engines {
     static func convert(_ request: ConversionRequest) async throws {
         guard let engine = engine(from: request.sourceFormat, to: request.target) else {
             DiagnosticLog.log("no engine for \(request.sourceFormat.rawValue) -> \(request.target.rawValue)")
-            throw SatsumaError.unsupportedConversion(request.sourceFormat, request.target)
+            throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
         }
         DiagnosticLog.log("engine \(type(of: engine)) \(request.sourceFormat.rawValue) -> \(request.target.rawValue) src=\(request.source.path)")
         let temp = request.destination.deletingLastPathComponent()
-            .appendingPathComponent(".satsuma-\(UUID().uuidString).\(request.destination.pathExtension)")
+            .appendingPathComponent(".yuzu-\(UUID().uuidString).\(request.destination.pathExtension)")
         let staged = ConversionRequest(
             source: request.source,
             sourceFormat: request.sourceFormat,

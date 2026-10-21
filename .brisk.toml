@@ -1,9 +1,9 @@
 [package]
-name = "Satsuma"
+name = "Yuzu"
 version = "0.1.0"
 
 [app]
-bundle_id = "lol.peril.satsuma"
+bundle_id = "com.radja.yuzu"
 deployment_target = "26.0"
 sources = "Sources"
 resources = ["Resources"]
@@ -46,6 +46,6 @@ sources = "Tests"
 xctest = false
 
 [archive]
-path = ".brisk/Archives/Satsuma.app"
-export_path = ".brisk/Archives/Satsuma.zip"
+path = ".brisk/Archives/Yuzu.app"
+export_path = ".brisk/Archives/Yuzu.zip"
 zip = true

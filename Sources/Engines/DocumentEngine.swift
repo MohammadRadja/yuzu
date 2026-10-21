@@ -50,9 +50,9 @@ enum TextRenderer {
     }
 
     static func writePDF(_ text: String, to url: URL) throws {
-        guard let consumer = CGDataConsumer(url: url as CFURL) else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard let consumer = CGDataConsumer(url: url as CFURL) else { throw YuzuError.encodeFailed(url.lastPathComponent) }
         var mediaBox = CGRect(origin: .zero, size: pageSize)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw YuzuError.encodeFailed(url.lastPathComponent) }
         for range in paginate(text) {
             context.beginPDFPage(nil)
             draw(text, range: range, in: context)
@@ -70,7 +70,7 @@ enum TextRenderer {
         guard let context = CGContext(
             data: nil, width: width, height: totalHeight, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { throw SatsumaError.encodeFailed("image") }
+        ) else { throw YuzuError.encodeFailed("image") }
         context.setFillColor(NSColor.white.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: totalHeight))
         for (index, range) in ranges.enumerated() {
@@ -80,17 +80,17 @@ enum TextRenderer {
             draw(text, range: range, in: context, scale: scale)
             context.restoreGState()
         }
-        guard let image = context.makeImage() else { throw SatsumaError.encodeFailed("image") }
+        guard let image = context.makeImage() else { throw YuzuError.encodeFailed("image") }
         return image
     }
 }
 
 enum PDFRenderer {
     static func writeImagesPDF(_ urls: [URL], pageSize: CGSize, margin: CGFloat = 36, to destination: URL, progress: @escaping (Double) -> Void) throws {
-        guard !urls.isEmpty else { throw SatsumaError.invalidInput("No images to place in the PDF.") }
-        guard let consumer = CGDataConsumer(url: destination as CFURL) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard !urls.isEmpty else { throw YuzuError.invalidInput("No images to place in the PDF.") }
+        guard let consumer = CGDataConsumer(url: destination as CFURL) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
         var mediaBox = CGRect(origin: .zero, size: pageSize)
-        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
         for (index, url) in urls.enumerated() {
             let image = try ImageIOBridge.load(url)
             let available = mediaBox.insetBy(dx: margin, dy: margin)
@@ -144,12 +144,12 @@ struct DocumentEngine: ConversionEngine {
         switch request.sourceFormat {
         case .pdf: try await convertPDF(request)
         case .txt: try await convertText(request)
-        default: throw SatsumaError.unsupportedConversion(request.sourceFormat, request.target)
+        default: throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
         }
     }
 
     private func convertPDF(_ request: ConversionRequest) async throws {
-        guard let document = PDFDocument(url: request.source) else { throw SatsumaError.unreadable(request.source) }
+        guard let document = PDFDocument(url: request.source) else { throw YuzuError.unreadable(request.source) }
         let pageCount = document.pageCount
         switch request.target {
         case .txt:
@@ -161,7 +161,7 @@ struct DocumentEngine: ConversionEngine {
             try text.write(to: request.destination, atomically: true, encoding: .utf8)
         case .jpg, .png:
             if pageCount == 1, let page = document.page(at: 0) {
-                guard let image = PDFRenderer.render(page: page) else { throw SatsumaError.encodeFailed(request.destination.lastPathComponent) }
+                guard let image = PDFRenderer.render(page: page) else { throw YuzuError.encodeFailed(request.destination.lastPathComponent) }
                 try ImageIOBridge.write(image, to: request.destination, format: request.target, quality: 0.92)
             } else {
                 let folder = request.destination.deletingPathExtension()
@@ -179,7 +179,7 @@ struct DocumentEngine: ConversionEngine {
         case .docx:
             var paragraphs: [String] = []
             var images: [URL] = []
-            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-pdfdocx-\(UUID().uuidString)")
+            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-pdfdocx-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: temp) }
             for index in 0..<pageCount {
@@ -196,7 +196,7 @@ struct DocumentEngine: ConversionEngine {
             }
             try await DocxWriter.write(paragraphs: paragraphs, images: images, to: request.destination)
         default:
-            throw SatsumaError.unsupportedConversion(.pdf, request.target)
+            throw YuzuError.unsupportedConversion(.pdf, request.target)
         }
         request.progress(1)
     }
@@ -213,7 +213,7 @@ struct DocumentEngine: ConversionEngine {
             let cues = SubtitleParser.parse(text, hint: .txt)
             try SubtitleParser.serialize(cues, as: request.target).write(to: request.destination, atomically: true, encoding: .utf8)
         default:
-            throw SatsumaError.unsupportedConversion(.txt, request.target)
+            throw YuzuError.unsupportedConversion(.txt, request.target)
         }
         request.progress(1)
     }
@@ -225,6 +225,6 @@ enum TextFile {
         var encoding = String.Encoding.utf8
         if let text = try? String(contentsOf: url, usedEncoding: &encoding) { return text }
         if let text = try? String(contentsOf: url, encoding: .isoLatin1) { return text }
-        throw SatsumaError.unreadable(url)
+        throw YuzuError.unreadable(url)
     }
 }

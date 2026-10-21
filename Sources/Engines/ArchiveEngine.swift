@@ -7,10 +7,10 @@ struct ArchiveEngine: ConversionEngine {
 
     func convert(_ request: ConversionRequest) async throws {
         if request.target == .rar {
-            throw SatsumaError.invalidInput("RAR archives can be read but macOS has no free RAR encoder. Choose ZIP, TAR, or GZIP instead.")
+            throw YuzuError.invalidInput("RAR archives can be read but macOS has no free RAR encoder. Choose ZIP, TAR, or GZIP instead.")
         }
         let fm = FileManager.default
-        let staging = fm.temporaryDirectory.appendingPathComponent("satsuma-archive-\(UUID().uuidString)")
+        let staging = fm.temporaryDirectory.appendingPathComponent("yuzu-archive-\(UUID().uuidString)")
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
 
@@ -26,16 +26,16 @@ struct ArchiveEngine: ConversionEngine {
             try await ZipTool.unzip(archive, into: directory)
         case .tar:
             let result = try await Shell.run("/usr/bin/tar", ["-xf", archive.path, "-C", directory.path])
-            guard result.succeeded else { throw SatsumaError.toolFailed("tar", result.stderr) }
+            guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
         case .gz:
             let name = archive.lastPathComponent.lowercased()
             if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") {
                 let result = try await Shell.run("/usr/bin/tar", ["-xzf", archive.path, "-C", directory.path])
-                guard result.succeeded else { throw SatsumaError.toolFailed("tar", result.stderr) }
+                guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
             } else {
                 let output = directory.appendingPathComponent(archive.deletingPathExtension().lastPathComponent)
                 let result = try await Shell.run("/bin/sh", ["-c", "/usr/bin/gunzip -c \"$0\" > \"$1\"", archive.path, output.path])
-                guard result.succeeded else { throw SatsumaError.toolFailed("gunzip", result.stderr) }
+                guard result.succeeded else { throw YuzuError.toolFailed("gunzip", result.stderr) }
             }
         case .rar:
             let candidates = ["unar", "unrar", "bsdtar"]
@@ -52,10 +52,10 @@ struct ArchiveEngine: ConversionEngine {
             }
             let bsdtar = try await Shell.run("/usr/bin/tar", ["-xf", archive.path, "-C", directory.path])
             guard bsdtar.succeeded else {
-                throw SatsumaError.toolFailed("rar", "Install `unar` (`wax install unar`) to extract RAR archives.")
+                throw YuzuError.toolFailed("rar", "Install `unar` (`wax install unar`) to extract RAR archives.")
             }
         default:
-            throw SatsumaError.unsupportedConversion(format, .zip)
+            throw YuzuError.unsupportedConversion(format, .zip)
         }
     }
 
@@ -65,12 +65,12 @@ struct ArchiveEngine: ConversionEngine {
             try await ZipTool.zip(directory: directory, to: destination)
         case .tar:
             let result = try await Shell.run("/usr/bin/tar", ["-cf", destination.path, "-C", directory.path, "."])
-            guard result.succeeded else { throw SatsumaError.toolFailed("tar", result.stderr) }
+            guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
         case .gz:
             let result = try await Shell.run("/usr/bin/tar", ["-czf", destination.path, "-C", directory.path, "."])
-            guard result.succeeded else { throw SatsumaError.toolFailed("tar", result.stderr) }
+            guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
         default:
-            throw SatsumaError.unsupportedConversion(.zip, format)
+            throw YuzuError.unsupportedConversion(.zip, format)
         }
     }
 }

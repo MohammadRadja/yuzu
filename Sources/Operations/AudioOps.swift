@@ -79,7 +79,7 @@ enum AudioOps {
             }
         }
         guard FFmpeg.isAvailable else { return [] }
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-wave-\(UUID().uuidString).wav")
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-wave-\(UUID().uuidString).wav")
         defer { try? FileManager.default.removeItem(at: temp) }
         do {
             try await FFmpeg.run(["-i", url.path, "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", temp.path], purpose: "Waveform")
@@ -139,7 +139,7 @@ enum AudioOps {
     static func applyGain(_ url: URL, left: Float, right: Float, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void) async throws {
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
-        guard let track = tracks.first else { throw SatsumaError.invalidInput("No audio track found.") }
+        guard let track = tracks.first else { throw YuzuError.invalidInput("No audio track found.") }
         let params = AVMutableAudioMixInputParameters(track: track)
         params.setVolume((left + right) / 2, at: .zero)
         let mix = AVMutableAudioMix()
@@ -192,7 +192,7 @@ enum AudioOps {
 
     static func bleep(_ url: URL, ranges: [BleepRange], frequency: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void) async throws {
         let sorted = ranges.filter { $0.end > $0.start }.sorted { $0.start < $1.start }
-        guard !sorted.isEmpty else { throw SatsumaError.invalidInput("Add at least one bleep range.") }
+        guard !sorted.isEmpty else { throw YuzuError.invalidInput("Add at least one bleep range.") }
         if FFmpeg.isAvailable {
             let duration = await FFmpeg.probeDuration(url)
             let mute = sorted.map { "between(t,\($0.start),\($0.end))" }.joined(separator: "+")
@@ -205,7 +205,7 @@ enum AudioOps {
         }
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
-        guard let track = tracks.first else { throw SatsumaError.invalidInput("No audio track found.") }
+        guard let track = tracks.first else { throw YuzuError.invalidInput("No audio track found.") }
         let params = AVMutableAudioMixInputParameters(track: track)
         params.setVolume(1, at: .zero)
         for range in sorted {
@@ -259,7 +259,7 @@ enum AudioOps {
         case .bars:
             filter = "[0:a]showfreqs=s=\(w)x\(h / 2):mode=bar:colors=\(accent):fscale=log:ascale=sqrt:win_size=2048:rate=30[w];color=c=\(background):s=\(w)x\(h):r=30[bg];[bg][w]overlay=0:(H-h)/2:shortest=1,format=yuv420p[v]"
         case .stillImage:
-            guard let image else { throw SatsumaError.invalidInput("Choose an image for the still-image visualizer.") }
+            guard let image else { throw YuzuError.invalidInput("Choose an image for the still-image visualizer.") }
             args += ["-loop", "1", "-framerate", "30", "-i", image.path]
             filter = "[1:v]scale=\(w):\(h):force_original_aspect_ratio=decrease,pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2:color=\(background),format=yuv420p[v]"
         }

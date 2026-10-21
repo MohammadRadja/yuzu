@@ -97,7 +97,7 @@ final class JobRunner: ObservableObject {
             } catch is CancellationError {
                 DiagnosticLog.log("job cancelled: \(job.detail)")
                 job.status = .cancelled
-            } catch SatsumaError.cancelled {
+            } catch YuzuError.cancelled {
                 DiagnosticLog.log("job cancelled: \(job.detail)")
                 job.status = .cancelled
             } catch {

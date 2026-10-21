@@ -129,7 +129,7 @@ struct FrameImageToolView: View {
         let opts = options(scale: 1, source: original)
         let format: FileFormat = backgroundKind == .color && color.nsColor.alphaComponent >= 1 ? ImageToolSupport.outputFormat(for: session.primary) : .png
         ImageToolSupport.save(session, suffix: "framed", format: format) {
-            guard let framed = ImageOps.framed(original, options: opts) else { throw SatsumaError.encodeFailed("Rendering failed") }
+            guard let framed = ImageOps.framed(original, options: opts) else { throw YuzuError.encodeFailed("Rendering failed") }
             return framed
         }
     }

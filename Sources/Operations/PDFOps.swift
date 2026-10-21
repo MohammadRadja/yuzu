@@ -15,8 +15,8 @@ struct PDFPageRef: Identifiable, Equatable {
 
 enum PDFOps {
     static func document(_ url: URL) throws -> PDFDocument {
-        guard let document = PDFDocument(url: url) else { throw SatsumaError.unreadable(url) }
-        if document.isLocked { throw SatsumaError.invalidInput("\(url.lastPathComponent) is password protected.") }
+        guard let document = PDFDocument(url: url) else { throw YuzuError.unreadable(url) }
+        if document.isLocked { throw YuzuError.invalidInput("\(url.lastPathComponent) is password protected.") }
         return document
     }
 
@@ -29,7 +29,7 @@ enum PDFOps {
                 output.insert(page, at: output.pageCount)
             }
         }
-        guard output.write(to: destination) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard output.write(to: destination) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 
     static func assemble(pages: [PDFPageRef], to destination: URL) throws {
@@ -47,8 +47,8 @@ enum PDFOps {
             copy.rotation = ref.rotation
             output.insert(copy, at: output.pageCount)
         }
-        guard output.pageCount > 0 else { throw SatsumaError.invalidInput("The document would have no pages.") }
-        guard output.write(to: destination) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard output.pageCount > 0 else { throw YuzuError.invalidInput("The document would have no pages.") }
+        guard output.write(to: destination) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 
     enum SplitMode: String, CaseIterable, Identifiable {
@@ -95,7 +95,7 @@ enum PDFOps {
         case .ranges:
             groups = parseRanges(ranges, pageCount: count)
         }
-        guard !groups.isEmpty else { throw SatsumaError.invalidInput("No valid page ranges.") }
+        guard !groups.isEmpty else { throw YuzuError.invalidInput("No valid page ranges.") }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var outputs: [URL] = []
         for (index, group) in groups.enumerated() {
@@ -106,7 +106,7 @@ enum PDFOps {
             }
             let name = group.count == 1 ? "\(base) page \(group.lowerBound).pdf" : "\(base) pages \(group.lowerBound)-\(group.upperBound).pdf"
             let output = folder.appendingPathComponent(name.isEmpty ? "\(base) part \(index + 1).pdf" : name)
-            guard part.write(to: output) else { throw SatsumaError.encodeFailed(output.lastPathComponent) }
+            guard part.write(to: output) else { throw YuzuError.encodeFailed(output.lastPathComponent) }
             outputs.append(output)
         }
         return outputs
@@ -123,17 +123,17 @@ enum PDFOps {
             let rendered = PDFDocument()
             for index in 0..<source.pageCount {
                 guard let page = source.page(at: index), let image = PDFRenderer.render(page: page, dpi: 110) else { continue }
-                let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-pdfpage-\(UUID().uuidString).jpg")
+                let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-pdfpage-\(UUID().uuidString).jpg")
                 try ImageIOBridge.write(image, to: temp, format: .jpg, quality: 0.6)
                 defer { try? FileManager.default.removeItem(at: temp) }
                 if let nsImage = NSImage(contentsOf: temp), let newPage = PDFPage(image: nsImage) {
                     rendered.insert(newPage, at: rendered.pageCount)
                 }
             }
-            guard rendered.write(to: destination, withOptions: options) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+            guard rendered.write(to: destination, withOptions: options) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
             return
         }
-        guard source.write(to: destination, withOptions: options) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard source.write(to: destination, withOptions: options) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 
     static func fromImages(_ urls: [URL], to destination: URL, progress: @escaping (Double) -> Void) throws {
@@ -146,7 +146,7 @@ enum PDFOps {
             }
             progress(Double(index + 1) / Double(urls.count))
         }
-        guard output.pageCount > 0 else { throw SatsumaError.invalidInput("No images could be read.") }
-        guard output.write(to: destination) else { throw SatsumaError.encodeFailed(destination.lastPathComponent) }
+        guard output.pageCount > 0 else { throw YuzuError.invalidInput("No images could be read.") }
+        guard output.write(to: destination) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
     }
 }

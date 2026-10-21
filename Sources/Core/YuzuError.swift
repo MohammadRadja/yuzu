@@ -1,6 +1,6 @@
 import Foundation
 
-enum SatsumaError: LocalizedError {
+enum YuzuError: LocalizedError {
     case unsupportedConversion(FileFormat, FileFormat)
     case unreadable(URL)
     case encodeFailed(String)

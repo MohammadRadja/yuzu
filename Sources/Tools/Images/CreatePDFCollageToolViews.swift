@@ -243,7 +243,7 @@ struct CollageToolView: View {
         let o = options
         ImageToolSupport.save(session, suffix: "collage", format: .jpg, title: "Creating collage") {
             let images = try files.map { try ImageIOBridge.load($0, maxPixelSize: 4000) }
-            guard let cg = ImageOps.collage(images, options: o) else { throw SatsumaError.encodeFailed("Collage rendering failed") }
+            guard let cg = ImageOps.collage(images, options: o) else { throw YuzuError.encodeFailed("Collage rendering failed") }
             return cg
         }
     }

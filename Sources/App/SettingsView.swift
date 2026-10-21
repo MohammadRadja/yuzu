@@ -67,7 +67,7 @@ struct SettingsView: View {
             Toggle("Reveal results in Finder", isOn: $settings.revealInFinder)
         }
         Section("General") {
-            Toggle("Launch Satsuma at login", isOn: $settings.launchAtLogin)
+            Toggle("Launch Yuzu at login", isOn: $settings.launchAtLogin)
         }
         Section {
             LabeledContent("Conversion wheel") {
@@ -148,7 +148,7 @@ struct SettingsView: View {
         } header: {
             Text("FFmpeg (optional)")
         } footer: {
-            Text("Satsuma uses Apple frameworks for most work. FFmpeg fills the gaps: MP3, FLAC, OGG, Opus, WMA, MKV, WebM, AVI, WMV, GIF and AVIF/WebP encoding on older systems.")
+                Text("Yuzu uses Apple frameworks for most work. FFmpeg fills the gaps: MP3, FLAC, OGG, Opus, WMA, MKV, WebM, AVI, WMV, GIF and AVIF/WebP encoding on older systems.")
         }
     }
 
@@ -159,7 +159,7 @@ struct SettingsView: View {
                     .resizable()
                     .frame(width: 56, height: 56)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Satsuma").font(.title2.weight(.semibold))
+                    Text("Yuzu").font(.title2.weight(.semibold))
                     Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -256,7 +256,7 @@ final class SettingsWindow: NSWindow {
 
 @MainActor
 final class SettingsToolbarDelegate: NSObject, NSToolbarDelegate {
-    static let tabsItem = NSToolbarItem.Identifier("satsuma.settings.tabs")
+    static let tabsItem = NSToolbarItem.Identifier("yuzu.settings.tabs")
     let model: SettingsTabModel
 
     init(model: SettingsTabModel) {

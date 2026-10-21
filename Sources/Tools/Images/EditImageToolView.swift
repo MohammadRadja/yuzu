@@ -85,7 +85,7 @@ struct EditImageToolView: View {
         let adjustments = adjustments
         ImageToolSupport.save(session, suffix: "edited") {
             let output = ImageOps.adjusted(CIImage(cgImage: original), adjustments)
-            guard let image = ImageToolSupport.cgImage(output) else { throw SatsumaError.encodeFailed("Rendering failed") }
+            guard let image = ImageToolSupport.cgImage(output) else { throw YuzuError.encodeFailed("Rendering failed") }
             return image
         }
     }

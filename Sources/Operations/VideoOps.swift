@@ -32,7 +32,7 @@ enum VideoOps {
 
     static func videoComposition(for asset: AVAsset, crop: CGRect?, outputSize: CGSize?, filter: ((CIImage, CMTime) -> CIImage)? = nil) async throws -> AVVideoComposition {
         let tracks = try await asset.loadTracks(withMediaType: .video)
-        guard let track = tracks.first else { throw SatsumaError.invalidInput("No video track found.") }
+        guard let track = tracks.first else { throw YuzuError.invalidInput("No video track found.") }
         let natural = try await track.load(.naturalSize)
         let transform = try await track.load(.preferredTransform)
         let fps = try await track.load(.nominalFrameRate)
@@ -183,7 +183,7 @@ enum VideoOps {
         generator.requestedTimeToleranceAfter = .zero
         let time = CMTime(seconds: seconds, preferredTimescale: 600)
         if let result = try? await generator.image(at: time) { return result.image }
-        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-frame-\(UUID().uuidString).png")
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-frame-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: temp) }
         try await FFmpeg.run(["-ss", FFmpeg.timecode(seconds), "-i", url.path, "-frames:v", "1", temp.path], purpose: "Extracting frame")
         return try ImageIOBridge.load(temp)

@@ -35,7 +35,7 @@ func expectEqual<T: Equatable>(_ a: T, _ b: T, _ message: String = "", file: Str
 }
 
 @main
-struct SatsumaTests {
+struct YuzuTests {
     static func main() {
         let runner = TestRunner()
 
@@ -97,7 +97,7 @@ struct SatsumaTests {
         }
 
         runner.test("output naming avoids collisions") {
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("satsuma-tests-\(UUID().uuidString)")
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: dir) }
             let source = URL(fileURLWithPath: "/tmp/photo.heic")

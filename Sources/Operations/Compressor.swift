@@ -3,7 +3,7 @@ import Foundation
 
 enum Compressor {
     static func compress(_ url: URL, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void) async throws {
-        guard let format = FileFormat.detect(url) else { throw SatsumaError.unreadable(url) }
+        guard let format = FileFormat.detect(url) else { throw YuzuError.unreadable(url) }
         switch format.category {
         case .image:
             try await compressImage(url, format: format, preset: preset, resizeLongEdge: resizeLongEdge, targetBytes: targetBytes, to: destination, progress: progress)
@@ -15,7 +15,7 @@ enum Compressor {
             try PDFOps.compress(url, strong: preset == .strong, to: destination)
             progress(1)
         default:
-            throw SatsumaError.invalidInput("\(format.displayName) files can't be compressed. Convert to ZIP instead.")
+            throw YuzuError.invalidInput("\(format.displayName) files can't be compressed. Convert to ZIP instead.")
         }
     }
 

@@ -111,7 +111,7 @@ struct NormalizeAudioToolView: View {
             }
             if !FFmpeg.isAvailable {
                 SidebarSection(title: "Note") {
-                    Text("Without FFmpeg, Satsuma applies peak normalization instead of EBU R128 loudness. Set an FFmpeg path in Settings for full loudness control.").font(.caption2).foregroundStyle(.secondary)
+                    Text("Without FFmpeg, Yuzu applies peak normalization instead of EBU R128 loudness. Set an FFmpeg path in Settings for full loudness control.").font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }

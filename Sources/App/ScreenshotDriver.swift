@@ -15,10 +15,10 @@ private func dumpBacktrace(_ signal: Int32) {
 
 @MainActor
 enum ScreenshotDriver {
-    static var isEnabled: Bool { ProcessInfo.processInfo.environment["SATSUMA_SCREENSHOTS"] != nil }
+    static var isEnabled: Bool { ProcessInfo.processInfo.environment["YUZU_SCREENSHOTS"] != nil }
 
     static func run(radial: RadialController) {
-        guard let directory = ProcessInfo.processInfo.environment["SATSUMA_SCREENSHOTS"].map({ URL(fileURLWithPath: $0) }) else { return }
+        guard let directory = ProcessInfo.processInfo.environment["YUZU_SCREENSHOTS"].map({ URL(fileURLWithPath: $0) }) else { return }
         for sig in [SIGSEGV, SIGBUS, SIGABRT, SIGILL, SIGTRAP] { signal(sig, dumpBacktrace) }
         NSSetUncaughtExceptionHandler { exception in
             fputs("uncaught exception \(exception.name.rawValue): \(exception.reason ?? "")\n\(exception.callStackSymbols.joined(separator: "\n"))\n", stderr)
@@ -162,7 +162,7 @@ enum ScreenshotDriver {
 
     private static func screencapture(_ arguments: [String]) async throws {
         let result = try await Shell.run("/usr/sbin/screencapture", arguments)
-        guard result.succeeded else { throw SatsumaError.toolFailed("screencapture", result.stderr) }
+        guard result.succeeded else { throw YuzuError.toolFailed("screencapture", result.stderr) }
     }
 
     private static func screencapture(_ label: String, _ arguments: [String]) async throws {
@@ -185,7 +185,7 @@ enum SampleMedia {
             context.setFillColor(NSColor.white.withAlphaComponent(0.08 + CGFloat(i % 3) * 0.06).cgColor)
             context.fillEllipse(in: CGRect(x: CGFloat(width) * CGFloat((i * 7) % 10) / 10, y: CGFloat(height) * CGFloat((i * 3) % 10) / 10, width: r, height: r))
         }
-        let text = NSAttributedString(string: "Satsuma", attributes: [.font: NSFont.systemFont(ofSize: CGFloat(width) / 8, weight: .bold), .foregroundColor: NSColor.white])
+        let text = NSAttributedString(string: "Yuzu", attributes: [.font: NSFont.systemFont(ofSize: CGFloat(width) / 8, weight: .bold), .foregroundColor: NSColor.white])
         let line = CTLineCreateWithAttributedString(text)
         let bounds = CTLineGetBoundsWithOptions(line, [])
         context.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2, y: (CGFloat(height) - bounds.height) / 2)
@@ -224,15 +224,15 @@ enum SampleMedia {
             kCVPixelBufferHeightKey as String: height,
         ])
         writer.add(input)
-        guard writer.startWriting() else { throw writer.error ?? SatsumaError.encodeFailed(url.lastPathComponent) }
+        guard writer.startWriting() else { throw writer.error ?? YuzuError.encodeFailed(url.lastPathComponent) }
         writer.startSession(atSourceTime: .zero)
         let total = Int(seconds * Double(fps))
         for frame in 0..<total {
             while !input.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 5_000_000) }
-            guard let pool = adaptor.pixelBufferPool else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+            guard let pool = adaptor.pixelBufferPool else { throw YuzuError.encodeFailed(url.lastPathComponent) }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-            guard let pixelBuffer = buffer else { throw SatsumaError.encodeFailed(url.lastPathComponent) }
+            guard let pixelBuffer = buffer else { throw YuzuError.encodeFailed(url.lastPathComponent) }
             CVPixelBufferLockBaseAddress(pixelBuffer, [])
             let context = CGContext(data: CVPixelBufferGetBaseAddress(pixelBuffer), width: width, height: height, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer), space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
             let progress = CGFloat(frame) / CGFloat(max(1, total - 1))

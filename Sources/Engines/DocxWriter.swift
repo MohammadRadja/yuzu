@@ -5,7 +5,7 @@ enum ZipTool {
     static func zip(directory: URL, to destination: URL) async throws {
         try? FileManager.default.removeItem(at: destination)
         let result = try await Shell.run("/usr/bin/zip", ["-r", "-X", "-q", destination.path, "."], currentDirectory: directory)
-        guard result.succeeded else { throw SatsumaError.toolFailed("zip", result.stderr) }
+        guard result.succeeded else { throw YuzuError.toolFailed("zip", result.stderr) }
     }
 
     static func zipOrdered(directory: URL, entries: [String], to destination: URL) async throws {
@@ -13,19 +13,19 @@ enum ZipTool {
         var args = ["-X", "-q", destination.path]
         args += entries
         let result = try await Shell.run("/usr/bin/zip", args, currentDirectory: directory)
-        guard result.succeeded else { throw SatsumaError.toolFailed("zip", result.stderr) }
+        guard result.succeeded else { throw YuzuError.toolFailed("zip", result.stderr) }
     }
 
     static func unzip(_ archive: URL, into directory: URL) async throws {
         let result = try await Shell.run("/usr/bin/ditto", ["-x", "-k", archive.path, directory.path])
-        guard result.succeeded else { throw SatsumaError.toolFailed("ditto", result.stderr) }
+        guard result.succeeded else { throw YuzuError.toolFailed("ditto", result.stderr) }
     }
 }
 
 enum DocxWriter {
     static func write(paragraphs: [String], images: [URL], to destination: URL) async throws {
         let fm = FileManager.default
-        let staging = fm.temporaryDirectory.appendingPathComponent("satsuma-docx-\(UUID().uuidString)")
+        let staging = fm.temporaryDirectory.appendingPathComponent("yuzu-docx-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: staging) }
         try fm.createDirectory(at: staging.appendingPathComponent("_rels"), withIntermediateDirectories: true)
         try fm.createDirectory(at: staging.appendingPathComponent("word/_rels"), withIntermediateDirectories: true)

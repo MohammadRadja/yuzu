@@ -50,7 +50,7 @@ enum FFmpeg {
 
     @discardableResult
     static func run(_ arguments: [String], purpose: String, duration: Double? = nil, progress: ((Double) -> Void)? = nil) async throws -> ShellResult {
-        guard let ffmpeg = path else { throw SatsumaError.ffmpegMissing(purpose) }
+        guard let ffmpeg = path else { throw YuzuError.ffmpegMissing(purpose) }
         var args = ["-hide_banner", "-y", "-nostdin"]
         if progress != nil { args += ["-progress", "pipe:1", "-loglevel", "error"] }
         args += arguments
@@ -61,7 +61,7 @@ enum FFmpeg {
             result = try await Shell.run(ffmpeg, args)
         }
         guard result.succeeded else {
-            throw SatsumaError.toolFailed("ffmpeg", summarize(result.stderr.isEmpty ? result.stdout : result.stderr))
+            throw YuzuError.toolFailed("ffmpeg", summarize(result.stderr.isEmpty ? result.stdout : result.stderr))
         }
         return result
     }

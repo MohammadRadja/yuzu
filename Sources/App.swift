@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @main
-struct SatsumaApp: App {
+struct YuzuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var settingsTabs = SettingsTabModel()
 
