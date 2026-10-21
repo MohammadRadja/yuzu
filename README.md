@@ -2,7 +2,7 @@
 
 The zero-click, local-first file converter for macOS. Hold **Shift** while dragging files in Finder to convert them; add **Option** to open advanced tools. Yuzu is designed to process selected files locally, never modify the original during conversion, and avoid telemetry.
 
-Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 188 conversion options across images, video, audio, documents, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
+Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 190 conversion options across images, video, audio, documents, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
 
 ## How it works
 
@@ -84,7 +84,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on the `macos-26` 
 ```
 .brisk.toml                Brisk manifest (bundle id com.radja.yuzu, LSUIElement)
 Sources/App                App delegate, status item, settings
-Sources/Formats            FileFormat enum, ConversionMatrix (188 options, output naming)
+Sources/Formats            FileFormat enum, ConversionMatrix (190 options, output naming)
 Sources/Engines            Conversion engines: image, audio, video, document, subtitle, archive, ffmpeg bridge
 Sources/Operations         Tool backends: ImageOps, VideoOps, AudioOps, PDFOps, MetadataOps, Compressor
 Sources/Radial             Global drag/modifier monitor and the radial menu overlay

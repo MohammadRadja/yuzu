@@ -26,7 +26,7 @@ The interaction is inspired by the public Tangerine for Mac interaction model: d
 
 ### Non-goals for the first implementation
 
-- Rewriting the conversion engines or changing the 188-option conversion matrix.
+- Rewriting the conversion engines or changing the 190-option conversion matrix.
 - Treating all file actions as conversion jobs.
 - Implementing Float, Quick Preview, or a custom file shelf before their macOS API and UX boundaries are validated.
 - Adding a global keyboard shortcut unrelated to an active drag.
