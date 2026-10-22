@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import PDFKit
+import SwiftUI
 
 struct TestFailure: Error, CustomStringConvertible {
     let description: String
@@ -24,6 +26,17 @@ final class TestRunner {
         print("\n\(count - failures.count)/\(count) passed")
         exit(failures.isEmpty ? 0 : 1)
     }
+
+    func testAsync(_ name: String, _ body: () async throws -> Void) async {
+        count += 1
+        do {
+            try await body()
+            print("  ok   \(name)")
+        } catch {
+            failures.append("\(name): \(error)")
+            print("  FAIL \(name): \(error)")
+        }
+    }
 }
 
 func expect(_ condition: Bool, _ message: String, file: String = #fileID, line: Int = #line) throws {
@@ -34,13 +47,29 @@ func expectEqual<T: Equatable>(_ a: T, _ b: T, _ message: String = "", file: Str
     if a != b { throw TestFailure(description: "\(message) expected \(b), got \(a) (\(file):\(line))") }
 }
 
+func withDocumentFixture(_ body: (URL) async throws -> Void) async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-document-tests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try await body(directory)
+}
+
+func convertFixture(_ source: URL, to target: FileFormat, in directory: URL) async throws -> URL {
+    guard let format = FileFormat.detect(source) else { throw TestFailure(description: "Unknown fixture format") }
+    return try await Engines.convert(
+        ConversionRequest(
+            source: source, sourceFormat: format, target: target, destination: ConversionMatrix.outputURL(for: source, target: target, in: directory),
+            progress: { _ in }))
+}
+
 @main
+@MainActor
 struct YuzuTests {
-    static func main() {
+    static func main() async {
         let runner = TestRunner()
 
-        runner.test("conversion matrix has 190 options") {
-            try expectEqual(ConversionMatrix.totalConversions, 190)
+        runner.test("conversion matrix has 253 options") {
+            try expectEqual(ConversionMatrix.totalConversions, 253)
         }
 
         runner.test("25 advanced tools") {
@@ -68,11 +97,11 @@ struct YuzuTests {
         }
 
         runner.test("PDF, TXT, subtitle and archive targets") {
-            try expectEqual(ConversionMatrix.targets(for: .pdf), [.docx, .jpg, .png, .txt])
-            try expectEqual(ConversionMatrix.targets(for: .txt), [.pdf, .jpg, .png, .srt, .vtt])
+            try expectEqual(ConversionMatrix.targets(for: .pdf), [.docx, .pptx, .xlsx, .jpg, .png, .epub, .txt, .md])
+            try expectEqual(ConversionMatrix.targets(for: .txt), [.pdf, .jpg, .png, .srt, .vtt, .docx, .md, .epub, .html])
             try expectEqual(ConversionMatrix.targets(for: .srt), [.vtt, .txt])
-            try expectEqual(ConversionMatrix.targets(for: .zip), [.tar, .gz, .rar])
-            try expectEqual(ConversionMatrix.targets(for: .docx), [.pdf, .txt])
+            try expectEqual(ConversionMatrix.targets(for: .zip), [.tar, .gz])
+            try expectEqual(ConversionMatrix.targets(for: .docx), [.pdf, .md, .txt, .epub, .html])
         }
 
         runner.test("mixed selection intersects targets") {
@@ -86,6 +115,55 @@ struct YuzuTests {
             try expectEqual(FileFormat.detect(URL(fileURLWithPath: "/tmp/a.tif")), .tiff)
             try expectEqual(FileFormat.detect(URL(fileURLWithPath: "/tmp/a.tgz")), .gz)
             try expectEqual(FileFormat.detect(URL(fileURLWithPath: "/tmp/a.unknown")), nil)
+            let added: [FileFormat] = [.ppt, .pptx, .xls, .xlsx, .ods, .csv, .tsv, .pages, .md, .epub, .rtf, .rtfd, .html]
+            for format in added {
+                try expectEqual(FileFormat.detect(URL(fileURLWithPath: "/tmp/File.\(format.rawValue.uppercased())")), format)
+            }
+            try expectEqual(FileFormat.detect(extension: "markdown"), .md)
+            try expectEqual(FileFormat.pptx.category, .presentation)
+            try expectEqual(FileFormat.xlsx.category, .spreadsheet)
+        }
+
+        runner.test("every advertised conversion has an engine and input-only types are never targets") {
+            for source in FileFormat.allCases {
+                let targets = ConversionMatrix.targets(for: source)
+                try expectEqual(Set(targets).count, targets.count, "targets are unique")
+                for target in targets {
+                    try expect(Engines.engine(from: source, to: target) != nil, "missing engine for \(source) -> \(target)")
+                    try expect(![FileFormat.ppt, .xls, .pages, .rtf, .rtfd, .rar].contains(target), "input-only target \(target)")
+                }
+            }
+            try expect(ConversionMatrix.targets(for: .html).isEmpty, "HTML is export-only")
+            try expectEqual(ConversionMatrix.targets(for: [.pptx, .pdf]), [.jpg, .png])
+        }
+
+        runner.test("CSV and TSV preserve quoting Unicode empty fields and embedded newlines") {
+            let rows = [["Name", "Comment", "Code"], ["Yuzu 🍋", "line 1\r\nline 2, \"quoted\"", "0012"], ["", "=1+1", ""]]
+            for separator: Character in [",", "\t"] {
+                try expectEqual(DelimitedText.parse("\u{FEFF}" + DelimitedText.serialize(rows, separator: separator), separator: separator), rows)
+            }
+            try expectEqual(DelimitedText.parse("", separator: ","), [])
+            try expectEqual(DelimitedText.parse("\"\"", separator: ","), [[""]])
+            for invalid in ["\"unclosed", "\"closed\"junk", "unexpected\"quote", "\"" + String(repeating: "a", count: 32_768) + "\""] {
+                do {
+                    _ = try DelimitedText.parse(invalid, separator: ",")
+                    throw TestFailure(description: "malformed CSV must be rejected")
+                } catch is YuzuError {}
+            }
+        }
+
+        runner.test("document XML rejects unsafe paths and DTDs and escapes control characters") {
+            for path in ["../outside", "/absolute", "safe/../../outside", "safe\\outside", "https:remote", "safe/./file"] {
+                do {
+                    try DocumentPackage.validateEntry(path)
+                    throw TestFailure(description: "unsafe package path accepted")
+                } catch is YuzuError {}
+            }
+            do {
+                _ = try DocumentXML.parse("<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><x>&e;</x>")
+                throw TestFailure(description: "external entity accepted")
+            } catch is YuzuError {}
+            try expectEqual(DocumentPackage.escape("<a>&\u{0}\""), "&lt;a&gt;&amp;&quot;")
         }
 
         runner.test("stripped base names") {
@@ -111,7 +189,8 @@ struct YuzuTests {
             let suffixed = ConversionMatrix.uniqueURL(directory: dir, baseName: "photo", suffix: "compressed", ext: "jpg")
             try expectEqual(suffixed.lastPathComponent, "photo compressed.jpg")
             try Data().write(to: suffixed)
-            try expectEqual(ConversionMatrix.uniqueURL(directory: dir, baseName: "photo", suffix: "compressed", ext: "jpg").lastPathComponent, "photo compressed 2.jpg")
+            try expectEqual(
+                ConversionMatrix.uniqueURL(directory: dir, baseName: "photo", suffix: "compressed", ext: "jpg").lastPathComponent, "photo compressed 2.jpg")
             try expectEqual(ConversionMatrix.uniqueURL(directory: dir, baseName: "photo", suffix: "", ext: "pdf").lastPathComponent, "photo.pdf")
             try FileManager.default.createDirectory(at: dir.appendingPathComponent("clip clips"), withIntermediateDirectories: true)
             try expectEqual(ConversionMatrix.uniqueDirectory(directory: dir, name: "clip clips").lastPathComponent, "clip clips 2")
@@ -207,6 +286,184 @@ struct YuzuTests {
             for category in FormatCategory.allCases {
                 try expect(NSImage(systemSymbolName: category.symbol, accessibilityDescription: nil) != nil, "\(category.rawValue) symbol")
             }
+        }
+
+        await runner.testAsync("PDF exports complete PPTX XLSX EPUB and Markdown packages without changing its source") {
+            try await withDocumentFixture { directory in
+                let first = directory.appendingPathComponent("first.pdf")
+                let second = directory.appendingPathComponent("second.pdf")
+                try TextRenderer.writePDF("Page one\n=1+1\nYuzu & citrus", to: first)
+                try TextRenderer.writePDF("Page two\nSecond sheet", to: second)
+                guard let document = PDFDocument(url: first), let extra = PDFDocument(url: second)?.page(at: 0) else {
+                    throw TestFailure(description: "cannot create PDF fixture")
+                }
+                document.insert(extra, at: 1)
+                let source = directory.appendingPathComponent("two pages.pdf")
+                try expect(document.write(to: source), "write two-page fixture")
+                let original = try Data(contentsOf: source)
+                let pptx = try await convertFixture(source, to: .pptx, in: directory)
+                let slides = try await Shell.run("/usr/bin/unzip", ["-p", pptx.path, "ppt/presentation.xml"], outputLimit: 64 * 1_024)
+                try expectEqual(try DocumentXML.parse(slides.stdout).elements.filter { $0.name == "sldId" }.count, 2)
+                let xlsx = try await convertFixture(source, to: .xlsx, in: directory)
+                let sheet = try await Shell.run("/usr/bin/unzip", ["-p", xlsx.path, "xl/worksheets/sheet1.xml"], outputLimit: 64 * 1_024)
+                try expect(sheet.stdout.contains("=1+1"), "PDF text preserved")
+                try expect(!sheet.stdout.contains("<f>"), "PDF content never becomes a formula")
+                let workbook = try await Shell.run("/usr/bin/unzip", ["-p", xlsx.path, "xl/workbook.xml"], outputLimit: 64 * 1_024)
+                try expectEqual(try DocumentXML.parse(workbook.stdout).elements.filter { $0.name == "sheet" }.count, 2)
+                let epub = try await convertFixture(source, to: .epub, in: directory)
+                let bookText = try await EPUBDocument.read(epub)
+                try expect(bookText.contains("Page one") && bookText.contains("Page two"), "EPUB includes every page")
+                let markdown = try await convertFixture(source, to: .md, in: directory)
+                try expect(try String(contentsOf: markdown, encoding: .utf8).contains("Page two"), "Markdown includes every page")
+                let images = try await convertFixture(source, to: .png, in: directory)
+                try expectEqual(
+                    try FileManager.default.contentsOfDirectory(at: images, includingPropertiesForKeys: nil).count, 2,
+                    "all PDF page images are returned as a folder")
+                try expectEqual(try Data(contentsOf: source), original, "source bytes preserved")
+            }
+        }
+
+        await runner.testAsync("native spreadsheet and ebook conversions preserve literal data") {
+            try await withDocumentFixture { directory in
+                let csv = directory.appendingPathComponent("sample.csv")
+                let rows = [["Name", "Code"], ["Yuzu, 🍋", "0012"], ["=1+1", "line\nwrap"]]
+                try DelimitedText.serialize(rows, separator: ",").write(to: csv, atomically: true, encoding: .utf8)
+                for target in [FileFormat.xlsx, .ods, .pdf, .tsv] {
+                    let output = try await convertFixture(csv, to: target, in: directory)
+                    try expect(FileManager.default.fileExists(atPath: output.path), "native spreadsheet output exists")
+                    if target == .tsv { try expectEqual(DelimitedText.parse(TextFile.read(output), separator: "\t"), rows) }
+                }
+                let text = directory.appendingPathComponent("text.txt")
+                try "Hello <Yuzu> & 🍋\nSecond paragraph".write(to: text, atomically: true, encoding: .utf8)
+                let epub = try await convertFixture(text, to: .epub, in: directory)
+                let roundTrip = try await convertFixture(epub, to: .txt, in: directory)
+                try expect(try TextFile.read(roundTrip).contains("Hello <Yuzu> & 🍋"), "EPUB text round trip")
+                _ = try await convertFixture(epub, to: .docx, in: directory)
+                let html = try await convertFixture(text, to: .html, in: directory)
+                try expect(try TextFile.read(html).contains("&lt;Yuzu&gt; &amp;"), "HTML escapes source content")
+            }
+        }
+
+        await runner.testAsync("failed cancelled and colliding document conversions preserve source and clean staging") {
+            try await withDocumentFixture { directory in
+                let source = directory.appendingPathComponent("source.txt")
+                try "Original".write(to: source, atomically: true, encoding: .utf8)
+                let destination = directory.appendingPathComponent("existing.epub")
+                let sentinel = Data("Keep this existing output".utf8)
+                try sentinel.write(to: destination)
+                do {
+                    try await Engines.convert(
+                        ConversionRequest(source: source, sourceFormat: .txt, target: .epub, destination: destination, progress: { _ in }))
+                    throw TestFailure(description: "existing output was overwritten")
+                } catch is TestFailure { throw TestFailure(description: "conversion should reject a collision") } catch {}
+                try expectEqual(try Data(contentsOf: destination), sentinel)
+                let cancelled = Task { try await convertFixture(source, to: .epub, in: directory) }
+                cancelled.cancel()
+                do { _ = try await cancelled.value; throw TestFailure(description: "cancelled work succeeded") } catch is CancellationError {}
+                let invalid = directory.appendingPathComponent("invalid.pptx")
+                try Data("not an Office package".utf8).write(to: invalid)
+                do {
+                    _ = try await convertFixture(invalid, to: .pdf, in: directory); throw TestFailure(description: "invalid PPTX succeeded")
+                } catch is YuzuError {}
+                let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                try expect(!files.contains { $0.hasPrefix(".yuzu-") }, "staged output removed")
+                try expectEqual(try TextFile.read(source), "Original")
+            }
+        }
+
+        await runner.testAsync("EPUB archive traversal and output pipe overflow are rejected") {
+            try await withDocumentFixture { directory in
+                let contents = directory.appendingPathComponent("contents")
+                try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+                try "Fixture".write(to: directory.appendingPathComponent("outside.txt"), atomically: true, encoding: .utf8)
+                let archive = directory.appendingPathComponent("unsafe.epub")
+                let packed = try await Shell.run("/usr/bin/zip", ["-q", archive.path, "../outside.txt"], currentDirectory: contents)
+                try expect(packed.succeeded, "create traversal fixture")
+                do { _ = try await DocumentArchive.open(archive); throw TestFailure(description: "unsafe archive accepted") } catch is YuzuError {}
+                let bounded = try await Shell.run("/usr/bin/printf", ["123456789"], outputLimit: 4)
+                try expect(bounded.outputTruncated, "overflow reported")
+                try expectEqual(bounded.stdout, "1234", "capture remains bounded")
+            }
+        }
+
+        await runner.testAsync("subprocess cancellation and launch failure finish without waiting for child output") {
+            let child = Task { try await Shell.run("/bin/sleep", ["30"]) }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            child.cancel()
+            do { _ = try await child.value; throw TestFailure(description: "cancelled subprocess returned normally") } catch is CancellationError {}
+            do {
+                _ = try await Shell.run("/no-such-yuzu-test-executable", []); throw TestFailure(description: "missing executable succeeded")
+            } catch is TestFailure { throw TestFailure(description: "launch failure must throw") } catch {}
+        }
+
+        await runner.testAsync("RTFD packages export readable text") {
+            try await withDocumentFixture { directory in
+                let source = directory.appendingPathComponent("document.rtfd")
+                let text = NSAttributedString(string: "Yuzu rich document")
+                let wrapper = try text.fileWrapper(
+                    from: NSRange(location: 0, length: text.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd])
+                try wrapper.write(to: source, options: .atomic, originalContentsURL: nil)
+                try expectEqual(FileFormat.detect(source), .rtfd)
+                let output = try await convertFixture(source, to: .txt, in: directory)
+                try expect(try TextFile.read(output).contains("Yuzu rich document"), "RTFD text preserved")
+            }
+        }
+
+        if OfficeEngine.executable != nil {
+            await runner.testAsync("LibreOffice reads native PPTX XLSX ODS and DOCX output and exports all slides") {
+                try await withDocumentFixture { directory in
+                    let source = directory.appendingPathComponent("office source.pdf")
+                    try TextRenderer.writePDF("Office fixture", to: source)
+                    let pptx = try await convertFixture(source, to: .pptx, in: directory)
+                    let pdf = try await convertFixture(pptx, to: .pdf, in: directory)
+                    try expectEqual(PDFDocument(url: pdf)?.pageCount, 1, "PPTX opens and exports in LibreOffice")
+                    let images = try await convertFixture(pptx, to: .jpg, in: directory)
+                    try expect(ImageIOBridge.pixelSize(images).width > 0, "presentation page renders")
+                    let csv = directory.appendingPathComponent("table.csv")
+                    let originalRows = [["Name", "Code"], ["Yuzu", "0012"], ["  spaces  ", "line\nwrap"], ["tab\there", "_x0041_"], ["=1+1", "&<🍋>"]]
+                    try DelimitedText.serialize(originalRows, separator: ",").write(to: csv, atomically: true, encoding: .utf8)
+                    for target in [FileFormat.xlsx, .ods] {
+                        let sheet = try await convertFixture(csv, to: target, in: directory)
+                        let exported = try await convertFixture(sheet, to: .tsv, in: directory)
+                        let rows = try DelimitedText.parse(TextFile.read(exported), separator: "\t")
+                        try expectEqual(rows, originalRows, "spreadsheet strings survive LibreOffice")
+                    }
+                    let text = directory.appendingPathComponent("document.txt")
+                    try "Yuzu document".write(to: text, atomically: true, encoding: .utf8)
+                    let docx = try await convertFixture(text, to: .docx, in: directory)
+                    let converted = try await convertFixture(docx, to: .pdf, in: directory)
+                    try expect(PDFDocument(url: converted)?.string?.contains("Yuzu document") == true, "DOCX -> PDF is functional")
+                    for target in [FileFormat.epub, .md, .html] {
+                        _ = try await convertFixture(docx, to: target, in: directory)
+                    }
+                    guard let executable = OfficeEngine.executable else { throw TestFailure(description: "LibreOffice disappeared") }
+                    let profile = directory.appendingPathComponent("legacy-profile")
+                    try OfficeEngine.prepareProfile(profile)
+                    let inputs = [
+                        (pptx, "ppt:MS PowerPoint 97", FileFormat.pdf), (directory.appendingPathComponent("table.xlsx"), "xls:MS Excel 97", FileFormat.csv),
+                    ]
+                    for (input, filter, target) in inputs {
+                        let result = try await Shell.run(
+                            executable,
+                            [
+                                "-env:UserInstallation=\(profile.absoluteString)", "--headless", "--norestore", "--convert-to", filter, "--outdir",
+                                directory.path, input.path,
+                            ], outputLimit: 64 * 1_024)
+                        try expect(result.succeeded, "create legacy Office fixture")
+                        let legacy = input.deletingPathExtension().appendingPathExtension(filter.hasPrefix("ppt:") ? "ppt" : "xls")
+                        _ = try await convertFixture(legacy, to: target, in: directory)
+                    }
+                    let richText = NSAttributedString(string: "RTF fixture")
+                    let rtf = directory.appendingPathComponent("rich.rtf")
+                    try richText.data(
+                        from: NSRange(location: 0, length: richText.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+                    ).write(to: rtf)
+                    let extracted = try await convertFixture(rtf, to: .txt, in: directory)
+                    try expect(try TextFile.read(extracted).contains("RTF fixture"), "RTF input converts")
+                }
+            }
+        } else {
+            print("  skip LibreOffice integration: LibreOffice is not installed")
         }
 
         runner.finish()

@@ -2,7 +2,7 @@
 
 The zero-click, local-first file converter for macOS. Hold **Shift** while dragging files in Finder to convert them; add **Option** to open advanced tools. Yuzu is designed to process selected files locally, never modify the original during conversion, and avoid telemetry.
 
-Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 190 conversion options across images, video, audio, documents, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
+Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 253 conversion options across images, video, audio, documents, slides, spreadsheets, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
 
 ## How it works
 
@@ -28,12 +28,19 @@ The radial menu is built from Liquid Glass wedges (`glassEffect` on a custom rou
 | MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | every other audio format |
 | MP4, MOV, MKV, WebM, AVI, WMV | every other video format, GIF, MP3 |
 | GIF | MP4, MOV, MKV, WebM, AVI, WMV |
-| PDF | DOCX, JPG, PNG (all pages, 300 DPI), TXT |
-| TXT | PDF, JPG, PNG, SRT, VTT |
+| PDF | DOCX, PPTX (one image slide per page), XLSX (text rows; one sheet per page), JPG/PNG (all pages, 300 DPI), EPUB, TXT, MD |
+| TXT | PDF, JPG, PNG, SRT, VTT, DOCX, MD, EPUB, HTML |
+| DOCX, Markdown, EPUB | PDF, DOCX, MD, TXT, EPUB, HTML (excluding the source format) |
+| PAGES, RTF, RTFD | PDF, DOCX, MD, TXT, EPUB, HTML (input only) |
+| PPT, PPTX | PDF, JPG, PNG (all slides) |
+| XLSX, ODS, CSV, TSV | XLSX, ODS, CSV, TSV, PDF (excluding the source format) |
+| XLS | XLSX, ODS, CSV, TSV, PDF (input only) |
 | SRT, VTT | VTT/SRT, TXT |
 | ZIP, TAR, GZIP, RAR | ZIP, TAR, GZIP (RAR can be read, not written) |
 
-Native frameworks are used first: ImageIO/Core Graphics for images, AVFoundation for audio and video, PDFKit/Core Text for documents, Foundation for archives. `ffmpeg` is used only for formats Apple's frameworks cannot encode or decode (WebM/VP9, MKV, AVI, WMV, OGG, Opus, FLAC output, WMA, MP3 encoding, animated GIF export). `unar`/`bsdtar` extracts RAR.
+Native frameworks are used first: ImageIO/Core Graphics for images, AVFoundation for audio and video, PDFKit/Core Text for documents, Foundation for archives. Native document exporters create PDF-to-PPTX/XLSX, text-based EPUB/Markdown/HTML, and CSV/TSV spreadsheet outputs. An optional local LibreOffice installation handles PPT/PPTX, XLS/XLSX/ODS, DOCX/RTF, and PAGES input. `ffmpeg` is used only for formats Apple's frameworks cannot encode or decode (WebM/VP9, MKV, AVI, WMV, OGG, Opus, FLAC output, WMA, MP3 encoding, animated GIF export). `unar`/`bsdtar` extracts RAR.
+
+PAGES export and text-clipping input are not implemented. Pages import depends on the file version supported by LibreOffice. PDF-to-PPTX preserves each page as an image, rather than editable slide objects; PDF-to-XLSX extracts selectable text rather than reconstructing tables. EPUB and text-document exports do not reconstruct typography, embedded media, or OCR. CSV/TSV exports from multi-sheet office files include the first sheet; HTML output is self-contained escaped text. Markdown is now a separate format rather than a TXT alias.
 
 ## Advanced tools
 
@@ -49,6 +56,7 @@ Native frameworks are used first: ImageIO/Core Graphics for images, AVFoundation
 
 - Apple silicon Mac running macOS 26 or later.
 - [Brisk](https://github.com/plyght/brisk) and the Xcode command-line tools (`swiftc`) to build.
+- Optional: [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) in Applications for Office input conversion. Settings > Conversion reports availability. It is already installed on the development host; Yuzu does not install it automatically.
 - Optional: `ffmpeg` for the non-native formats listed above (`wax install ffmpeg`), `unar` for RAR extraction (`wax install unar`). Yuzu looks in `PATH`, `/opt/homebrew/bin` and `/usr/local/bin`; a custom path can be set in Settings.
 
 ## Build
@@ -84,7 +92,7 @@ The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on the `macos-26` 
 ```
 .brisk.toml                Brisk manifest (bundle id com.radja.yuzu, LSUIElement)
 Sources/App                App delegate, status item, settings
-Sources/Formats            FileFormat enum, ConversionMatrix (190 options, output naming)
+Sources/Formats            FileFormat enum, ConversionMatrix (253 options, output naming)
 Sources/Engines            Conversion engines: image, audio, video, document, subtitle, archive, ffmpeg bridge
 Sources/Operations         Tool backends: ImageOps, VideoOps, AudioOps, PDFOps, MetadataOps, Compressor
 Sources/Radial             Global drag/modifier monitor and the radial menu overlay

@@ -26,7 +26,7 @@ The interaction is inspired by the public Tangerine for Mac interaction model: d
 
 ### Non-goals for the first implementation
 
-- Rewriting the conversion engines or changing the 190-option conversion matrix.
+- Rewriting unrelated conversion engines. The later document-format expansion now provides 253 matrix pairs; see `ARCHITECTURE.md` for implemented formats and backend limitations.
 - Treating all file actions as conversion jobs.
 - Implementing Float, Quick Preview, or a custom file shelf before their macOS API and UX boundaries are validated.
 - Adding a global keyboard shortcut unrelated to an active drag.
@@ -71,7 +71,7 @@ The current fallback can recognize a drag before URLs are available, but that al
 ### Formats, engines, and tools
 
 - `Sources/Formats/FileFormat.swift` detects formats from extensions and aliases and maps them to Uniform Type identifiers.
-- `Sources/Formats/ConversionMatrix.swift` computes supported targets, mixed-selection intersections, output names, collision suffixes, and the current 188-conversion total.
+- `Sources/Formats/ConversionMatrix.swift` computes supported targets, mixed-selection intersections, output names, collision suffixes, and the current 253-conversion total.
 - `Sources/Engines/ConversionEngine.swift` chooses a supporting engine, writes to a staged temporary sibling, checks cancellation, and moves the result to the final destination.
 - `Sources/Engines/` contains native image, audio, video, document, subtitle, and archive engines plus FFmpeg integration.
 - `Sources/Operations/` contains advanced tool backends for images, video, audio, PDFs, metadata, and compression.

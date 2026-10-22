@@ -105,6 +105,15 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var conversion: some View {
+        Section {
+            LabeledContent("LibreOffice", value: OfficeEngine.executable == nil ? "Not found" : "Available")
+        } header: {
+            Text("Office conversions")
+        } footer: {
+            Text(
+                "LibreOffice is needed for PowerPoint, Excel, ODS, Pages input, and DOCX/RTF conversion. Install it in Applications. PDF exports to PPTX/XLSX and CSV/TSV conversions use native code."
+            )
+        }
         Section("Images") {
             HStack {
                 Text("JPEG / HEIC / WebP quality")

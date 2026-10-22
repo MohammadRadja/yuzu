@@ -213,7 +213,7 @@ Do not rewrite the app or replace working drag/conversion logic solely for cosme
 - [ ] Active wedge is unmistakable through contrast, outline, and label feedback.
 - [ ] Wheel supports 2–8 items without clipped or overlapping labels.
 - [ ] Desktop and Finder drags behave consistently for the same supported file type.
-- [ ] Unsupported DOCX or other unavailable operations show accurate, helpful feedback.
+- [ ] Unsupported inputs and missing Office backends show accurate, helpful feedback; DOCX conversion uses the optional LibreOffice backend.
 - [ ] Radial never presents misleading actions while waiting for file URLs.
 - [ ] Keyboard navigation, Escape, VoiceOver, and reduced-motion behavior are verified.
 - [ ] Layout remains usable on small displays, at screen edges, and across multiple monitors.

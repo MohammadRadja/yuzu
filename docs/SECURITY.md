@@ -11,6 +11,10 @@ Yuzu is designed for local-first processing, but this repository does not prove 
 - `FileFormat.detect` limits supported formats by known extensions and aliases.
 - Conversion output is staged under a UUID-based hidden sibling and moved after engine completion.
 - Sources are not intentionally overwritten by conversion; output collision naming is handled by `ConversionMatrix`.
+- Office conversions use a separate temporary LibreOffice profile per job with macros disabled, Writer/Calc link updates disabled, and update checks disabled. The original is copied before conversion; no automation permission is added.
+- EPUB imports read validated individual ZIP members through bounded pipes and never extract untrusted entry paths. XML DTDs/entities and excessive nesting are rejected.
+- Native XLSX exports store untrusted cell content as inline strings, never executable formulas.
+- `Engines.convert` refuses same-path source/output and existing-file overwrite, cleans staging on all exits, and returns the committed output URL.
 - Diagnostics are local files under the user's Library Logs directory.
 
 These controls are implementation observations, not a security guarantee.
@@ -22,6 +26,8 @@ Validate file URLs, existence, regular-file status, readable input, output direc
 Pass external-tool arguments as separate values. Never interpolate paths into `sh -c`, shell pipelines, or command strings. Resolve executables from trusted configured paths and verify executability. Review every new FFmpeg or archive argument for overwrite, network, protocol, and resource implications.
 
 Use unique temporary directories with restrictive permissions, clean them on success, failure, and cancellation, and avoid logging document contents or sensitive metadata. Do not claim that deletion securely erases data. Preserve user permissions where possible and never broaden file permissions unnecessarily.
+
+The LibreOffice integration is an external document parser, not a sandbox. Configuration disables automatic link updates but does not prove that every importer cannot fetch an embedded remote resource; no network-isolation guarantee is made. Keep LibreOffice maintained, use trusted fixture data for testing, and review unusual or hostile documents before distribution. EPUB text is limited to 8 MB per member and 32 MB overall; package listings are capped at 2 MB / 10000 unique entries. Native CSV/TSV input is limited to 32 MB, spreadsheet cells to 32767 UTF-16 units, and PDF-to-PPTX to 1000 pages / 256 MB of rendered images.
 
 ## macOS permissions and packaging
 

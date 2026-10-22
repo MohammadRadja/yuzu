@@ -15,15 +15,21 @@ enum ConversionMatrix {
         case .gif:
             list = FileFormat.video
         case .pdf:
-            list = [.docx, .jpg, .png, .txt]
+            list = [.docx, .pptx, .xlsx, .jpg, .png, .epub, .txt, .md]
         case .txt:
-            list = [.pdf, .jpg, .png, .srt, .vtt]
+            list = [.pdf, .jpg, .png, .srt, .vtt, .docx, .md, .epub, .html]
+        case .docx, .pages, .md, .epub, .rtf, .rtfd:
+            list = FileFormat.documentTargets
+        case .ppt, .pptx:
+            list = [.pdf, .jpg, .png]
+        case .xls, .xlsx, .ods, .csv, .tsv:
+            list = FileFormat.spreadsheetTargets
+        case .html:
+            list = []  // Export only: do not load remote resources from HTML input.
         case .srt, .vtt:
             list = FileFormat.subtitles + [.txt]
         case .zip, .tar, .gz, .rar:
-            list = FileFormat.archives
-        case .docx:
-            list = [.pdf, .txt]
+            list = [.zip, .tar, .gz]
         }
         return list.filter { $0 != source }
     }

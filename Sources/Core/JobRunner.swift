@@ -62,8 +62,8 @@ final class JobRunner: ObservableObject {
             let job = Job(title: "Converting to \(target.displayName)", detail: url.lastPathComponent, symbol: target.category.symbol)
             enqueue(job) { progress in
                 let request = ConversionRequest(source: url, sourceFormat: source, target: target, destination: destination, progress: progress)
-                try await Engines.convert(request)
-                return [destination]
+                let output = try await Engines.convert(request)
+                return [output]
             }
         }
     }
@@ -122,7 +122,8 @@ final class JobRunner: ObservableObject {
         dismissAll()
     }
 
-    func run(title: String, detail: String, symbol: String = "arrow.triangle.2.circlepath", work: @escaping (@escaping (Double) -> Void) async throws -> [URL]) {
+    func run(title: String, detail: String, symbol: String = "arrow.triangle.2.circlepath", work: @escaping (@escaping (Double) -> Void) async throws -> [URL])
+    {
         enqueue(Job(title: title, detail: detail, symbol: symbol), work: work)
     }
 
@@ -206,7 +207,9 @@ final class JobHUDPanel: NSPanel, NSWindowDelegate, JobHUD {
 
     init(runner: JobRunner) {
         self.runner = runner
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 340, height: 100), styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel, .utilityWindow], backing: .buffered, defer: false)
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 100),
+            styleMask: [.titled, .closable, .fullSizeContentView, .nonactivatingPanel, .utilityWindow], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
         titlebarAppearsTransparent = true

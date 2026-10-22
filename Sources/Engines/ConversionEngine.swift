@@ -19,6 +19,8 @@ enum Engines {
         AudioEngine(),
         VideoEngine(),
         DocumentEngine(),
+        OfficeEngine(),
+        SpreadsheetEngine(),
         SubtitleEngine(),
         ArchiveEngine(),
     ]
@@ -27,7 +29,17 @@ enum Engines {
         all.first { $0.supports(from: from, to: to) }
     }
 
-    static func convert(_ request: ConversionRequest) async throws {
+    @discardableResult
+    static func convert(_ request: ConversionRequest) async throws -> URL {
+        try Task.checkCancellation()
+        guard request.source.isFileURL, request.destination.isFileURL,
+            request.source.standardizedFileURL != request.destination.standardizedFileURL
+        else {
+            throw YuzuError.invalidInput("Choose a separate local destination so the original file stays unchanged.")
+        }
+        guard ConversionMatrix.targets(for: request.sourceFormat).contains(request.target) else {
+            throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
+        }
         guard let engine = engine(from: request.sourceFormat, to: request.target) else {
             DiagnosticLog.log("no engine for \(request.sourceFormat.rawValue) -> \(request.target.rawValue)")
             throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
@@ -42,6 +54,7 @@ enum Engines {
             destination: temp,
             progress: request.progress
         )
+        defer { try? FileManager.default.removeItem(at: temp) }
         do {
             try await engine.convert(staged)
             try Task.checkCancellation()
@@ -54,11 +67,13 @@ enum Engines {
                         name: request.destination.deletingPathExtension().lastPathComponent
                     )
                     try FileManager.default.moveItem(at: temp, to: folder)
+                    return folder
                 } else {
-                    try? FileManager.default.removeItem(at: request.destination)
                     try FileManager.default.moveItem(at: temp, to: request.destination)
+                    return request.destination
                 }
             }
+            throw YuzuError.encodeFailed(request.destination.lastPathComponent)
         } catch {
             DiagnosticLog.log("engine threw: \(error)")
             try? FileManager.default.removeItem(at: temp)

@@ -6,6 +6,8 @@ enum FormatCategory: String, CaseIterable {
     case audio
     case video
     case document
+    case presentation
+    case spreadsheet
     case subtitle
     case archive
 
@@ -15,6 +17,8 @@ enum FormatCategory: String, CaseIterable {
         case .audio: return "waveform"
         case .video: return "film"
         case .document: return "doc.text"
+        case .presentation: return "rectangle.on.rectangle"
+        case .spreadsheet: return "tablecells"
         case .subtitle: return "captions.bubble"
         case .archive: return "archivebox"
         }
@@ -26,6 +30,8 @@ enum FormatCategory: String, CaseIterable {
         case .audio: return "Audio"
         case .video: return "Video"
         case .document: return "Document"
+        case .presentation: return "Slides"
+        case .spreadsheet: return "Spreadsheet"
         case .subtitle: return "Subtitle"
         case .archive: return "Archive"
         }
@@ -36,7 +42,9 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
     case jpg, png, webp, heic, tiff, svg, avif, bmp, gif
     case mp3, m4a, wav, flac, ogg, opus, aiff, wma
     case mp4, mov, mkv, webm, avi, wmv
-    case pdf, docx, txt
+    case pdf, docx, pages, md, txt, epub, rtf, rtfd, html
+    case ppt, pptx
+    case xls, xlsx, ods, csv, tsv
     case srt, vtt
     case zip, tar, gz, rar
 
@@ -48,6 +56,8 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
     static let video: [FileFormat] = [.mp4, .mov, .mkv, .webm, .avi, .wmv]
     static let subtitles: [FileFormat] = [.srt, .vtt]
     static let archives: [FileFormat] = [.zip, .tar, .gz, .rar]
+    static let documentTargets: [FileFormat] = [.pdf, .docx, .md, .txt, .epub, .html]
+    static let spreadsheetTargets: [FileFormat] = [.xlsx, .ods, .csv, .tsv, .pdf]
 
     var category: FormatCategory {
         switch self {
@@ -55,7 +65,9 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
         case .gif: return .video
         case .mp3, .m4a, .wav, .flac, .ogg, .opus, .aiff, .wma: return .audio
         case .mp4, .mov, .mkv, .webm, .avi, .wmv: return .video
-        case .pdf, .docx, .txt: return .document
+        case .pdf, .docx, .pages, .md, .txt, .epub, .rtf, .rtfd, .html: return .document
+        case .ppt, .pptx: return .presentation
+        case .xls, .xlsx, .ods, .csv, .tsv: return .spreadsheet
         case .srt, .vtt: return .subtitle
         case .zip, .tar, .gz, .rar: return .archive
         }
@@ -84,7 +96,9 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
         case .mp4: return ["mp4", "m4v"]
         case .mov: return ["mov", "qt"]
         case .gz: return ["gz", "tgz"]
-        case .txt: return ["txt", "text", "md", "log"]
+        case .txt: return ["txt", "text", "log"]
+        case .md: return ["md", "markdown"]
+        case .html: return ["html", "htm"]
         case .aiff: return ["aiff", "aif"]
         default: return [rawValue]
         }
@@ -117,6 +131,19 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
         case .wmv: return UTType("com.microsoft.windows-media-wmv")
         case .pdf: return .pdf
         case .docx: return UTType("org.openxmlformats.wordprocessingml.document")
+        case .pages: return UTType("com.apple.iwork.pages.pages")
+        case .md: return UTType("net.daringfireball.markdown") ?? .plainText
+        case .epub: return UTType("org.idpf.epub-container")
+        case .rtf: return .rtf
+        case .rtfd: return .rtfd
+        case .html: return .html
+        case .ppt: return UTType("com.microsoft.powerpoint.ppt")
+        case .pptx: return UTType("org.openxmlformats.presentationml.presentation")
+        case .xls: return UTType("com.microsoft.excel.xls")
+        case .xlsx: return UTType("org.openxmlformats.spreadsheetml.sheet")
+        case .ods: return UTType("org.oasis-open.opendocument.spreadsheet")
+        case .csv: return .commaSeparatedText
+        case .tsv: return .tabSeparatedText
         case .txt: return .plainText
         case .srt: return UTType("com.subrip.srt") ?? .plainText
         case .vtt: return UTType("org.w3.webvtt") ?? .plainText

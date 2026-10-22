@@ -10,11 +10,13 @@ enum TextRenderer {
     static func attributed(_ text: String) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 2
-        return NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.black,
-            .paragraphStyle: paragraph,
-        ])
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.black,
+                .paragraphStyle: paragraph,
+            ])
     }
 
     static func paginate(_ text: String) -> [CFRange] {
@@ -67,10 +69,12 @@ enum TextRenderer {
         let width = Int(pageSize.width * scale)
         let pageHeight = Int(pageSize.height * scale)
         let totalHeight = pageHeight * ranges.count
-        guard let context = CGContext(
-            data: nil, width: width, height: totalHeight, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { throw YuzuError.encodeFailed("image") }
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: totalHeight, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )
+        else { throw YuzuError.encodeFailed("image") }
         context.setFillColor(NSColor.white.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: totalHeight))
         for (index, range) in ranges.enumerated() {
@@ -113,10 +117,12 @@ enum PDFRenderer {
         let rotated = rotation % 180 != 0
         let width = Int(((rotated ? bounds.height : bounds.width) * scale).rounded())
         let height = Int(((rotated ? bounds.width : bounds.height) * scale).rounded())
-        guard width > 0, height > 0, let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { return nil }
+        guard width > 0, height > 0,
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )
+        else { return nil }
         context.setFillColor(NSColor.white.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.saveGState()
@@ -134,16 +140,18 @@ enum PDFRenderer {
 struct DocumentEngine: ConversionEngine {
     func supports(from: FileFormat, to: FileFormat) -> Bool {
         switch (from, to) {
-        case (.pdf, .docx), (.pdf, .jpg), (.pdf, .png), (.pdf, .txt): return true
-        case (.txt, .pdf), (.txt, .jpg), (.txt, .png), (.txt, .srt), (.txt, .vtt): return true
+        case (.pdf, _), (.txt, _), (.md, _), (.epub, _), (.rtfd, _):
+            return ConversionMatrix.targets(for: from).contains(to)
         default: return false
         }
     }
 
     func convert(_ request: ConversionRequest) async throws {
+        try Task.checkCancellation()
+        guard supports(from: request.sourceFormat, to: request.target) else { throw YuzuError.unsupportedConversion(request.sourceFormat, request.target) }
         switch request.sourceFormat {
         case .pdf: try await convertPDF(request)
-        case .txt: try await convertText(request)
+        case .txt, .md, .epub, .rtfd: try await convertText(request)
         default: throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
         }
     }
@@ -151,14 +159,36 @@ struct DocumentEngine: ConversionEngine {
     private func convertPDF(_ request: ConversionRequest) async throws {
         guard let document = PDFDocument(url: request.source) else { throw YuzuError.unreadable(request.source) }
         let pageCount = document.pageCount
+        guard pageCount > 0, !document.isLocked else { throw YuzuError.invalidInput("The PDF is empty or locked. Unlock it before converting.") }
         switch request.target {
-        case .txt:
+        case .pptx:
+            try await PresentationWriter.write(document, to: request.destination, progress: request.progress)
+        case .xlsx:
+            var sheets: [[[String]]] = []
+            for index in 0..<pageCount {
+                try Task.checkCancellation()
+                let text = document.page(at: index)?.string ?? ""
+                sheets.append(text.components(separatedBy: .newlines).filter { !$0.isEmpty }.map { [$0] })
+            }
+            guard sheets.contains(where: { !$0.isEmpty }) else {
+                throw YuzuError.invalidInput("This PDF has no selectable text for a spreadsheet. Choose PPTX, JPG, or PNG instead.")
+            }
+            try await SpreadsheetWriter.writeXLSX(sheets, to: request.destination)
+        case .txt, .md, .epub:
             var text = ""
             for index in 0..<pageCount {
+                try Task.checkCancellation()
                 if let page = document.page(at: index), let content = page.string { text += content + "\n\n" }
                 request.progress(Double(index + 1) / Double(pageCount))
             }
-            try text.write(to: request.destination, atomically: true, encoding: .utf8)
+            if request.target == .epub {
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw YuzuError.invalidInput("This PDF has no selectable text for an EPUB. Choose PPTX, JPG, or PNG instead.")
+                }
+                try await EPUBDocument.write(text, title: request.source.deletingPathExtension().lastPathComponent, to: request.destination)
+            } else {
+                try DocumentText.write(text, as: request.target, to: request.destination)
+            }
         case .jpg, .png:
             if pageCount == 1, let page = document.page(at: 0) {
                 guard let image = PDFRenderer.render(page: page) else { throw YuzuError.encodeFailed(request.destination.lastPathComponent) }
@@ -166,9 +196,13 @@ struct DocumentEngine: ConversionEngine {
             } else {
                 let folder = request.destination.deletingPathExtension()
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: folder) }
                 let base = ConversionMatrix.strippedBaseName(request.source.lastPathComponent)
                 for index in 0..<pageCount {
-                    guard let page = document.page(at: index), let image = PDFRenderer.render(page: page) else { continue }
+                    try Task.checkCancellation()
+                    guard let page = document.page(at: index), let image = PDFRenderer.render(page: page) else {
+                        throw YuzuError.encodeFailed("PDF page \(index + 1)")
+                    }
                     let pageURL = folder.appendingPathComponent("\(base) - page \(index + 1).\(request.target.fileExtension)")
                     try ImageIOBridge.write(image, to: pageURL, format: request.target, quality: 0.92)
                     request.progress(Double(index + 1) / Double(pageCount))
@@ -183,6 +217,7 @@ struct DocumentEngine: ConversionEngine {
             try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: temp) }
             for index in 0..<pageCount {
+                try Task.checkCancellation()
                 guard let page = document.page(at: index) else { continue }
                 let text = page.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !text.isEmpty {
@@ -202,7 +237,19 @@ struct DocumentEngine: ConversionEngine {
     }
 
     private func convertText(_ request: ConversionRequest) async throws {
-        let text = try TextFile.read(request.source)
+        let text: String
+        switch request.sourceFormat {
+        case .epub: text = try await EPUBDocument.read(request.source)
+        case .rtfd:
+            text = try await MainActor.run {
+                try NSAttributedString(url: request.source, options: [.documentType: NSAttributedString.DocumentType.rtfd], documentAttributes: nil).string
+            }
+        case .md:
+            let raw = try TextFile.read(request.source)
+            text = try String(AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)).characters)
+        default: text = try TextFile.read(request.source)
+        }
+        try Task.checkCancellation()
         switch request.target {
         case .pdf:
             try TextRenderer.writePDF(text, to: request.destination)
@@ -212,6 +259,12 @@ struct DocumentEngine: ConversionEngine {
         case .srt, .vtt:
             let cues = SubtitleParser.parse(text, hint: .txt)
             try SubtitleParser.serialize(cues, as: request.target).write(to: request.destination, atomically: true, encoding: .utf8)
+        case .docx:
+            try await DocxWriter.write(paragraphs: text.components(separatedBy: .newlines), images: [], to: request.destination)
+        case .epub:
+            try await EPUBDocument.write(text, title: request.source.deletingPathExtension().lastPathComponent, to: request.destination)
+        case .txt, .md, .html:
+            try DocumentText.write(text, as: request.target, to: request.destination)
         default:
             throw YuzuError.unsupportedConversion(.txt, request.target)
         }
