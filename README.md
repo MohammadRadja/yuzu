@@ -1,8 +1,30 @@
 # Yuzu
 
+**Your files. Your flow.**
+
+Yuzu is free and open-source software for Apple silicon Macs. [Source code](https://github.com/MohammadRadja/yuzu) · [Download from GitHub Releases](https://github.com/MohammadRadja/yuzu/releases).
+
 The zero-click, local-first file converter and file utility for macOS. Hold **Shift** while dragging files in Finder or on the Desktop to convert them, **Command** for tools, **Control** for file actions, or **Option** for Tasks. Yuzu is designed to process selected files locally, never modify the original during conversion, and avoid telemetry.
 
 Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 253 conversion options across images, video, audio, documents, slides, spreadsheets, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
+
+## Main features
+
+- **Shift (⇧) — Convert:** choose a compatible output format from the radial drag-and-drop menu.
+- **Command (⌘) — Tools:** open file-processing tools with previews and explicit save controls.
+- **Control (⌃) — Actions:** copy, move, rename, or use available macOS sharing and Terminal services.
+- **Option (⌥) — Yuzu Flow:** access Optimize, Organize, Rename, and Share shortcuts. The current interface labels this mode **Tasks**; these shortcuts open existing tools and file actions, with availability depending on the selection and system services.
+
+## Install and launch
+
+1. Open [GitHub Releases](https://github.com/MohammadRadja/yuzu/releases) and download `Yuzu-1.0.0.dmg` from the published v1.0.0 release when available.
+2. Open the DMG and drag **Yuzu.app** onto **Applications**.
+3. Eject the disk image and launch Yuzu from Applications.
+4. Find Yuzu in the menu bar, open Settings as needed, and drag a test file while holding a mode modifier.
+
+The v1.0.0 distribution uses **ad-hoc code signing**, has no Apple Developer ID signature, and is **not notarized by Apple**. macOS may block the first launch. Review the source and download origin before deciding whether to allow the app in **System Settings > Privacy & Security**. If macOS offers no supported option to open it, stop and report the warning. Do not disable Gatekeeper or remove quarantine attributes.
+
+Yuzu uses global mouse monitors to detect drags. If macOS requests **Accessibility** or **Input Monitoring** access, review the request and grant access to Yuzu in System Settings > Privacy & Security only when needed. Permission behavior still requires manual testing on supported macOS versions; the app does not currently provide a dedicated permission-request flow.
 
 ## How it works
 
@@ -58,17 +80,23 @@ PAGES export and text-clipping input are not implemented. Pages import depends o
 
 - Apple silicon Mac running macOS 26 or later.
 - [Brisk](https://github.com/plyght/brisk) and the Xcode command-line tools (`swiftc`) to build.
-- Optional: [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) in Applications for Office input conversion. Settings > Conversion reports availability. It is already installed on the development host; Yuzu does not install it automatically.
+- Optional: [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/) in Applications for Office input conversion. Settings > Conversion reports availability. Yuzu does not install it automatically.
 - Optional: `ffmpeg` for the non-native formats listed above (`wax install ffmpeg`), `unar` for RAR extraction (`wax install unar`). Yuzu looks in `PATH`, `/opt/homebrew/bin` and `/usr/local/bin`; a custom path can be set in Settings.
 
 ## Build
 
 ```bash
+git clone https://github.com/MohammadRadja/yuzu.git
+cd yuzu
 brisk build            # debug .app in .build/debug/Yuzu.app
 brisk run              # build and launch
 brisk test             # compile and run Tests/ with the app sources
+brisk build --release  # release .app in .build/release/Yuzu.app
 brisk archive --release
+scripts/package-dmg.sh # package the release output as dist/Yuzu-<version>.dmg
 ```
+
+The DMG packaging script requires Xcode's asset tools. It includes the app icon and MIT license, excludes internal Markdown from the bundle, applies ad-hoc signing, verifies and mounts the compressed image, and preserves an existing installer before replacement. It does not perform Apple Developer ID signing or notarization.
 
 During a Finder or Desktop drag, Yuzu polls `NSEvent.pressedMouseButtons`, `NSEvent.modifierFlags`, `NSEvent.mouseLocation` and the system drag pasteboard (`NSPasteboard(name: .drag)`). If Finder has not published the file URLs yet, a configured modifier plus sustained drag movement shows a non-actionable waiting state; the wheel then reads files and folders from the drag pasteboard or `NSDraggingInfo` as soon as they become available. It does not install key-event monitors or event taps. The current implementation does use global mouse monitors, so Accessibility/Input Monitoring behavior must be verified on each supported macOS configuration. Progress shows in a floating card or a small pill under the notch (Settings > Appearance); there are no system notifications.
 
@@ -109,4 +137,4 @@ Yuzu contains no telemetry or analytics implementation in this repository and is
 
 ## License
 
-MIT
+Licensed under the [MIT License](LICENSE). The upstream copyright notice is preserved.

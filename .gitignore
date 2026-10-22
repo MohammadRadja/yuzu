@@ -1,5 +1,44 @@
 .build/
 .brisk/
 *.dSYM
-.DS_Store
 *.xcuserstate
+
+# Internal documentation
+/docs/
+
+# Markdown files (keep only the root README)
+*.md
+!/README.md
+
+# Build and distribution
+dist/
+DerivedData/
+build/
+*.app/
+*.dmg
+*.xcarchive/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.mobileprovision
+*.key
+*.pem
+*.pfx
