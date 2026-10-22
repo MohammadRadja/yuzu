@@ -4,6 +4,7 @@ import SwiftUI
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case appearance
+    case shortcuts
     case conversion
     case about
 
@@ -13,6 +14,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .appearance: return "Appearance"
+        case .shortcuts: return "Shortcuts"
         case .conversion: return "Conversion"
         case .about: return "About"
         }
@@ -22,6 +24,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .appearance: return "paintbrush"
+        case .shortcuts: return "command"
         case .conversion: return "arrow.triangle.2.circlepath"
         case .about: return "info.circle"
         }
@@ -39,13 +42,14 @@ struct SettingsView: View {
     @State private var ffmpegHealth: FFmpeg.Health = .missing
 
     static let width: CGFloat = 520
-    static let height: CGFloat = 500
+    static let height: CGFloat = 540
 
     var body: some View {
         Form {
             switch model.tab {
             case .general: general
             case .appearance: appearance
+            case .shortcuts: shortcuts
             case .conversion: conversion
             case .about: about
             }
@@ -69,18 +73,6 @@ struct SettingsView: View {
         Section("General") {
             Toggle("Launch Yuzu at login", isOn: $settings.launchAtLogin)
         }
-        Section {
-            LabeledContent("Conversion wheel") {
-                Label("Shift", systemImage: "shift").labelStyle(.titleAndIcon)
-            }
-            LabeledContent("Tools wheel") {
-                Label("Option + Shift", systemImage: "option").labelStyle(.titleAndIcon)
-            }
-        } header: {
-            Text("Drag Modifiers")
-        } footer: {
-            Text("Hold the modifier while dragging files in Finder.")
-        }
     }
 
     @ViewBuilder private var appearance: some View {
@@ -98,9 +90,10 @@ struct SettingsView: View {
         } header: {
             Text("Progress")
         } footer: {
-            Text(settings.progressStyle == .card
-                 ? "A floating card in the top right corner with the file name and percentage."
-                 : "A tiny progress bar in a pill below the notch.")
+            Text(
+                settings.progressStyle == .card
+                    ? "A floating card in the top right corner with the file name and percentage."
+                    : "A tiny progress bar in a pill below the notch.")
         }
     }
 
@@ -137,9 +130,10 @@ struct SettingsView: View {
         } header: {
             Text("Compression")
         } footer: {
-            Text(settings.compressionPreset == .balanced
-                 ? "Balanced keeps detail while trimming size noticeably."
-                 : "Strong prioritizes the smallest file, with visible quality loss.")
+            Text(
+                settings.compressionPreset == .balanced
+                    ? "Balanced keeps detail while trimming size noticeably."
+                    : "Strong prioritizes the smallest file, with visible quality loss.")
         }
         Section {
             HStack {
@@ -157,8 +151,48 @@ struct SettingsView: View {
         } header: {
             Text("FFmpeg (optional)")
         } footer: {
-                Text("Yuzu uses Apple frameworks for most work. FFmpeg fills the gaps: MP3, FLAC, OGG, Opus, WMA, MKV, WebM, AVI, WMV, GIF and AVIF/WebP encoding on older systems.")
+            Text(
+                "Yuzu uses Apple frameworks for most work. FFmpeg fills the gaps: MP3, FLAC, OGG, Opus, WMA, MKV, WebM, AVI, WMV, GIF and AVIF/WebP encoding on older systems."
+            )
         }
+    }
+
+    @ViewBuilder private var shortcuts: some View {
+        Section {
+            ForEach(RadialMode.allCases) { mode in
+                Picker(mode.title, selection: modifierBinding(for: mode)) {
+                    ForEach(RadialModifier.allCases) { modifier in
+                        Label(modifier.title, systemImage: modifier.symbol).tag(modifier)
+                    }
+                }
+                .accessibilityLabel("\(mode.title) modifier")
+            }
+        } header: {
+            Text("Radial modes")
+        } footer: {
+            Text(
+                "Hold a modifier while dragging files from Finder or the Desktop. Changes apply to the next drag. Shift + Option remains a temporary tools compatibility shortcut."
+            )
+        }
+        if let modifierConflict = settings.modifierConflict {
+            Section {
+                Label(modifierConflict, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+        }
+        Section {
+            LabeledContent("Quick Preview", value: "Planned")
+            LabeledContent("Float", value: "Planned")
+        } header: {
+            Text("Not available")
+        }
+    }
+
+    private func modifierBinding(for mode: RadialMode) -> Binding<RadialModifier> {
+        Binding(
+            get: { settings.modifier(for: mode) },
+            set: { _ = settings.setModifier($0, for: mode) }
+        )
     }
 
     @ViewBuilder private var about: some View {
@@ -180,7 +214,9 @@ struct SettingsView: View {
             LabeledContent("Conversions", value: "\(ConversionMatrix.totalConversions)")
             LabeledContent("Tools", value: "\(ToolID.total)")
         } footer: {
-            Text("Hold Shift while dragging files to convert. Add Option for advanced tools. Everything runs on this Mac; nothing is uploaded.")
+            Text(
+                "Hold Shift while dragging files for Convert, Command for Tools, Control for Actions, or Option for Tasks. Everything runs on this Mac; nothing is uploaded."
+            )
         }
     }
 

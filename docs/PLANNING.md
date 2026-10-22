@@ -1,23 +1,36 @@
 # Yuzu Multi-Modifier Radial Menu Plan
 
-Status: planning only. No application source code is changed by this document.
+Status: implementation roadmap and migration record. Current source behavior is summarized in `docs/ARCHITECTURE.md`.
+
+### October 2026 critical repair record
+
+The drag and Citrus changes are implemented in source; live Finder/Desktop success is still unverified. The roadmap below retains migration context and is not a completion checklist for runtime behavior.
+
+- `DragMonitor` requires fresh drag-pasteboard URLs before presenting and delivers updates in order on the main actor. The old cursor-movement fallback was removed; one timer and local/global event observers track a press.
+- `RadialDragSession` now owns explicit dragging, presentation, hover, commitment, completion, cancellation, and failure states. Only the native destination's `performDragOperation` commits, bound to both session UUID and AppKit sequence number. Mouse release only starts a 250 ms cancellation fallback; native completion without commitment cancels immediately.
+- A compact 364 pt panel remains anchored throughout the gesture. Its entire content receives destination updates, while the shared rounded path alone determines valid wedges. AppKit-to-SwiftUI coordinates flip y exactly once, the ring no longer extends beneath the hub, and a single action uses an annulus.
+- The full selected wedge changes immediately to canonical Yuzu Yellow/Gold with dark text, without interpolating geometry or color. Hub tint sits behind its content, external drags show file context instead of repeating a filename, and the picker retains middle-truncated filenames and mouse/keyboard controls.
+- No new permission request or global key monitor was added. Finder's native preview remains owned by Finder. Copy/generic source masks are accepted; move-only masks are rejected, so a held modifier may need to be released before dropping while Yuzu retains the chosen mode.
+
+Automated coverage targets geometry, coordinate conversion, placement, stale/duplicate sessions, URL changes, cancellation, and source operation masks. Test execution and build results belong in `docs/DEVELOPMENT.md`. Manual acceptance still includes Shift+PNG, Control+DOCX, every wedge, exact-once drop, outside release, Escape, modifier switching, Finder versus Desktop, preview overlap, light/dark accessibility appearances, and multiple displays.
 
 ## 1. Scope and product intent
 
-Yuzu currently provides a Shift-drag radial menu for file conversion and an existing advanced-tool path using Shift+Option. This plan evolves that interaction into three explicit modes while preserving the existing conversion pipeline and current user-visible behavior during migration:
+Yuzu currently provides a Shift-drag radial menu for file conversion and an existing advanced-tool path using Shift+Option. This plan evolves that interaction into four explicit modes while preserving the existing conversion pipeline and current user-visible behavior during migration:
 
 | Mode | Default modifier | Purpose | Current status |
 | --- | --- | --- | --- |
 | Conversion | Shift | Convert supported files to compatible formats | Existing |
-| Tools | Command | Open supported image, video, audio, PDF, metadata, and compression tools | Existing tool implementations; new trigger planned |
-| Actions | Control | Perform general file/folder actions independent of conversion support | Not implemented |
+| Tools | Command | Open supported image, video, audio, PDF, metadata, and compression tools | Implemented |
+| Actions | Control | Perform general file/folder actions independent of conversion support | Implemented |
+| Tasks | Option | Run compact workflows backed by existing file and tool handlers | Implemented |
 
 The interaction is inspired by the public Tangerine for Mac interaction model: drag a file, tap Shift for conversion, Command for tools, or Control for actions; the wheel remains open until drop or cancellation; the mode keys can be changed in Settings. Yuzu must implement its own architecture, behavior, and visual identity and must not copy proprietary Tangerine branding, assets, or implementation. Reference: [Tangerine for Mac](https://tangerineformac.com/).
 
 ### Goals
 
 - Preserve Shift conversion behavior, the current conversion matrix, and the native-first engines.
-- Make Command and Control first-class mode selectors without creating three independent drag monitors or controllers.
+- Make Command, Control, and Option first-class mode selectors without creating independent drag monitors or controllers.
 - Keep the radial open while a drag continues, including after the currently held modifier is released.
 - Support files, folders, multiple selections, and mixed selections according to each mode's capability.
 - Make unsupported operations absent or visibly unavailable rather than exposing dead actions.
@@ -38,35 +51,37 @@ The interaction is inspired by the public Tangerine for Mac interaction model: d
 
 - `Sources/App.swift` defines `YuzuApp` and the SwiftUI Settings scene.
 - `Sources/App/AppDelegate.swift` installs the menu-bar accessory, starts `DragMonitor`, opens file pickers, and owns settings-window creation.
-- `Sources/App/AppSettings.swift` persists output location, appearance, FFmpeg path, launch-at-login, JPEG quality, compression, and progress settings through `UserDefaults`.
-- `Sources/App/SettingsView.swift` provides General, Appearance, and About settings but has no modifier assignment UI.
+- `Sources/App/AppSettings.swift` persists output location, appearance, FFmpeg path, launch-at-login, JPEG quality, compression, progress settings, and unique four-mode modifier assignments through `UserDefaults`.
+- `Sources/App/SettingsView.swift` provides General, Appearance, Shortcuts, and About settings, including the four modifier assignments.
 
 ### Drag monitoring
 
 `Sources/Radial/DragMonitor.swift` currently:
 
-- Installs global mouse-down, mouse-dragged, and mouse-up monitors.
+- Installs local/global mouse-down, mouse-dragged, mouse-up, and modifier observers.
 - Polls `NSEvent.pressedMouseButtons`, `NSEvent.modifierFlags`, the mouse location, and `NSPasteboard(name: .drag)`.
 - Records the drag pasteboard `changeCount` at press start and ignores unchanged or older pasteboard contents.
-- Uses a Finder-specific movement fallback after 0.3 seconds and 24 points of movement when Shift is held.
-- Exposes only Shift and Option through `DragMonitorDelegate`.
-- Reads file URLs from the drag pasteboard, standardizes them, and currently excludes directories.
-- Ends the modified session when the mouse button is released and can mark a handled session to avoid duplicate completion.
+- Requires a changed pasteboard generation containing existing file URLs before initial presentation; movement alone cannot confirm a file drag.
+- Emits mode-aware updates for Shift, Command, Control, and Option, with Shift+Option retained as a logged Tools compatibility alias.
+- Reads file URLs from the drag pasteboard, standardizes them, and retains directories for Actions and Tasks.
+- Reports physical mouse release without executing an operation. The controller permits the native callback to complete, then cancels any remaining session after 250 ms.
 
-The current fallback can recognize a drag before URLs are available, but that allows an empty radial state. The new design must separate “drag confirmed” from “valid selection available” and prevent empty data from triggering an actionable operation.
+Idle and previous-session URLs cannot trigger presentation. Destination pasteboard URLs become authoritative once a native sequence is bound; URL changes clear stale hover state and are rechecked at dispatch.
 
 ### Radial controller and view
 
-`Sources/Radial/RadialController.swift` currently owns one `RadialPanel`, the selected URLs, detected formats, an `advanced` Boolean, picker mode, and outside-click monitoring. It:
+`Sources/Radial/RadialController.swift` owns one `RadialPanel`, the selected URLs, `RadialMode`, `RadialDragSession`, picker mode, and picker outside-click monitoring. It:
 
-- Presents conversion targets when Shift is held.
-- Presents `ToolID.available(for:)` when Shift+Option selects advanced mode.
-- Reloads items when the Option state changes.
+- Presents conversion targets, applicable tools, file actions, or Tasks entries for the configured mode.
+- Presents `ToolID.available(for:)` for Command Tools and retains Shift+Option as the compatibility path.
+- Reloads items when any configured modifier or the selection changes.
 - Adopts later URLs from `NSDraggingInfo` or the drag pasteboard.
-- Hides on drag end, cancellation, outside click, or selection.
+- Holds a fixed compact panel anchor during a drag and changes only provider content when switching modes.
+- Claims a native drop once, after session/sequence/URL/geometry validation, then dismisses and dispatches the operation.
+- Cancels on uncommitted native completion or the release fallback; outside clicks cancel the picker.
 - Dispatches conversion items to `JobRunner` and tool items to `ToolWindowManager`.
 
-`Sources/Radial/RadialView.swift` is the AppKit drag destination and interaction surface. It handles wedge geometry, mouse movement, `NSDraggingInfo`, Return, Escape, and arrow keys. `RadialAction` currently has only `.convert(FileFormat)` and `.tool(ToolID)` cases.
+`Sources/Radial/RadialView.swift` is the AppKit drag destination and interaction surface. Periodic native drag updates and monitor cursor samples both update shared-path hit testing. External drops commit only through AppKit; picker mouse/Return/arrow-key controls remain separate. Escape cancels when delivered to Yuzu, while Finder's native drag end provides the external cancellation path. `RadialAction` includes conversion, tool, and file-action cases.
 
 ### Formats, engines, and tools
 
@@ -86,12 +101,13 @@ Tool applicability is currently format-category based. It is not an action capab
 | --- | --- | --- |
 | Shift conversion | Supported | Preserve and make one `RadialMode` |
 | Shift+Option tools | Supported | Keep as a compatibility path while Command becomes the configured default |
-| Command tools | None | Map to existing `ToolID` capability discovery |
-| Control actions | None | Add action capability discovery and handlers |
+| Command tools | Supported | Map to existing `ToolID` capability discovery |
+| Control actions | Supported | Use action capability discovery and handlers |
+| Option Tasks | Supported | Compose functional compression, move, rename, and AirDrop handlers |
 | Files | Supported when format is detected | Preserve for conversion/tools; support actions for all valid file URLs |
-| Folders | Currently filtered out by `fileURLs(on:)` | Support in Actions; explicitly define tool/conversion exclusions |
-| Empty selection | Can show a waiting/empty wheel after fallback | Never expose actionable items without a validated selection |
-| Settings modifiers | None | Persistent, unique, live-updating assignments |
+| Folders | Preserved by drag normalization | Keep tool/conversion exclusions explicit |
+| Empty selection | Does not initially present the external-drag panel | Never expose actionable items without a validated selection |
+| Settings modifiers | Persistent unique assignments, captured at press start | Validate native modifier compatibility |
 
 ## 3. Proposed architecture
 
@@ -104,6 +120,7 @@ enum RadialMode: String, CaseIterable, Identifiable {
     case conversion
     case tools
     case actions
+    case flow
 }
 ```
 
@@ -112,7 +129,7 @@ The exact type and file are implementation decisions for the coding phase, but t
 Use a separate selection model rather than assuming every item has a `FileFormat`:
 
 - `FileSelection`: ordered URLs, validated file/folder kind, source application/context if available, and a drag-session identity.
-- `RadialItem`: existing conversion/tool cases plus a planned action case.
+- `RadialItem`: conversion, tool, file-action, and Tasks entries backed by real handlers.
 - `RadialModeProvider`: maps a `FileSelection` and mode to supported items and an empty-state reason.
 - `RadialActionHandler`: executes conversion, tool, or file-action items through the appropriate subsystem.
 
@@ -124,7 +141,8 @@ Mode providers should be pure or mostly pure so they can be unit tested without 
 
 1. Conversion provider calls `FileFormat.detect` and `ConversionMatrix.targets(for:)`. It returns only targets supported by the current engine registry. Mixed selections use the existing intersection rule.
 2. Tools provider calls `ToolID.available(for:)` and retains current arity/category checks. Any tool that cannot operate on folders or mixed selections remains absent.
-3. Actions provider evaluates file and folder capabilities independently of detected formats. It can offer Copy, Move, Copy Path, AirDrop, Open in Terminal, and a validated Quick Preview/Float item when their handler and selection requirements are satisfied.
+3. Actions provider evaluates file and folder capabilities independently of detected formats. It offers only functional Copy, Move, Rename, Copy Path, AirDrop, and Open in Terminal entries when their handler and selection requirements are satisfied.
+4. Tasks provider composes functional existing capabilities: Optimize opens the compressor, Organize uses Move, Rename uses the native rename prompt, and Share uses AirDrop when available.
 
 The provider must distinguish:
 
@@ -148,6 +166,7 @@ Settings store one physical modifier per mode. The default mapping is:
 | conversion | `.shift` |
 | tools | `.command` |
 | actions | `.control` |
+| flow | `.option` |
 
 The settings validator rejects duplicate assignments. If multiple configured modifiers are held accidentally, the implementation must use deterministic “most recently pressed configured modifier wins” behavior, tracked per drag session. When the active modifier is released while another configured modifier remains held, switch to the remaining mode. When all configured modifiers are released, keep the last mode and keep the wheel open until drop, Escape, or drag-session end.
 
@@ -155,26 +174,28 @@ The existing Shift+Option tools path should remain as a migration compatibility 
 
 ## 4. Modifier interaction state machine
 
-The desired interaction is a drag-session state machine, not three independent shortcut handlers.
+`Sources/Radial/RadialDragSession.swift` implements the following interaction state machine. Physical press monitoring and native destination delivery feed this state; neither is a second operation dispatcher.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
-    Idle --> Pressing: mouseDown
-    Pressing --> Tracking: button remains down
-    Tracking --> AwaitingSelection: drag confirmed, URLs unavailable
-    Tracking --> Presenting: configured modifier + validated selection
-    AwaitingSelection --> Presenting: pasteboard/draggingInfo yields URLs
-    AwaitingSelection --> Tracking: drag is not confirmed or stale data rejected
-    Presenting --> SwitchingMode: configured modifier changes
-    SwitchingMode --> Presenting: same panel, new provider/items
-    Presenting --> Presenting: modifier released / selection updates / cursor moves
-    Presenting --> Committing: valid item selected and mouse released
-    Presenting --> Cancelling: Escape, outside click, or drag cancellation
-    Tracking --> Cancelling: mouse released without active mode
-    AwaitingSelection --> Cancelling: mouse released or session ended
-    Committing --> Idle: dispatch operation and mark session handled
-    Cancelling --> Idle: hide panel and clear session
+    [*] --> idle
+    idle --> dragging: new session / valid URLs / configured mode
+    dragging --> radialPresented: panel presented
+    dragging --> failed: presentation failed
+    radialPresented --> hoveringWedge: pointer enters valid path
+    hoveringWedge --> hoveringWedge: pointer enters another wedge
+    hoveringWedge --> radialPresented: gap / hub / outside / mode or URL change
+    radialPresented --> radialPresented: modifier released
+    hoveringWedge --> committing: native drop / matching session and sequence / fresh URLs
+    committing --> completed: claim and dispatch once
+    radialPresented --> cancelled: native end / cancellation / release fallback
+    hoveringWedge --> cancelled: native end / cancellation / release fallback
+    hoveringWedge --> failed: drop validation failed
+    dragging --> cancelled: cancellation
+    committing --> failed: failure
+    completed --> dragging: different new session
+    cancelled --> dragging: different new session
+    failed --> dragging: different new session
 ```
 
 Required state invariants:
@@ -182,7 +203,7 @@ Required state invariants:
 - A normal unmodified drag is invisible to Yuzu and must continue to Finder or the originating application unchanged.
 - A radial panel has one drag-session identity and one selected URL snapshot at a time.
 - Mode changes replace only the provider/items and mode presentation; they do not reset the drag session, cursor center, or valid selection.
-- A drop executes at most once. `markHandled()` and the session identity must prevent duplicate execution from both global mouse-up and `NSDraggingInfo` callbacks.
+- A drop executes at most once. Session identity, native sequence number, and terminal states reject duplicate `NSDraggingInfo` callbacks; mouse-up is a cancellation fallback only.
 - Escape and cancellation clear the panel without invoking an operation.
 - A mouse release with no valid highlighted item never executes an operation.
 
@@ -205,7 +226,7 @@ Required state invariants:
 
 ### Phase 2 — Multi-modifier mode switching
 
-- Add configurable `RadialMode` and default Shift/Command/Control mapping in the controller/monitor.
+- Add configurable `RadialMode` and default Shift/Command/Control/Option mapping in the controller/monitor.
 - Detect newly pressed and released configured modifiers during one drag.
 - Keep the panel open on modifier release and switch the provider in place.
 - Add deterministic handling for simultaneous modifiers and the legacy Shift+Option tools alias.
@@ -262,15 +283,7 @@ Every action needs cancellation, collision, permissions, mixed-selection, and fa
 
 Support Finder windows and Desktop by treating `NSPasteboard(name: .drag)` and `NSDraggingInfo.draggingPasteboard` as complementary sources. At press start, capture a session-specific `changeCount`; accept only updates observed after that count. Never reuse URLs from a previous session.
 
-When the drag is confirmed but the pasteboard has no URLs yet:
-
-1. Keep the session in `AwaitingSelection`.
-2. Continue polling at the existing drag interval and accept later pasteboard changes.
-3. Let the radial panel show a non-actionable waiting state only after the drag is positively confirmed, not merely because a modifier is held.
-4. Replace the waiting state immediately when valid URLs arrive.
-5. Cancel and clear the session if the mouse is released, the pasteboard becomes stale, or the drag session ends.
-
-The fallback movement heuristic should be generalized beyond “Finder + Shift” only after testing Desktop behavior. It must not manufacture a usable selection and must not cause a normal unmodified drag to be intercepted.
+The October 2026 repair supersedes the earlier waiting-panel/movement-fallback proposal. Before valid URLs arrive, the press monitor keeps polling without presenting a radial. A changed pasteboard with lazily supplied URLs is retried at most every 100 ms while empty. Once a native destination sequence is bound, its pasteboard is authoritative. Mouse release clears press state, and session termination clears retained URLs. Finder/Desktop timing remains a manual acceptance check; movement alone is not evidence of a file drag.
 
 ### Selection rules
 
@@ -283,7 +296,7 @@ The fallback movement heuristic should be generalized beyond “Finder + Shift�
 
 ### End and cancellation rules
 
-Handle global mouse-up, `draggingEnded`, `draggingExited`, outside click, Escape, and selection execution through one idempotent session teardown. Teardown must invalidate timers, clear active URLs and pasteboard state, remove monitors, end process activity, hide the panel, and prevent a second handler from executing the operation.
+Native `draggingEnded` without commitment cancels the matching session; physical release is a 250 ms cancellation fallback only. `draggingExited` clears hover without closing the wheel, allowing re-entry. `performDragOperation` is the only external commitment path. Teardown invalidates the release timer, clears URLs and callbacks, hides the panel, removes any picker outside-click monitor, and preserves terminal session identity against duplicate callbacks. The app-wide press monitor continues until stopped. Escape cancels when delivered to the view; external Finder Escape delivery and native completion still require manual verification.
 
 ## 7. Dependencies and compatibility
 
@@ -338,16 +351,21 @@ Handle global mouse-up, `draggingEnded`, `draggingExited`, outside click, Escape
 ### Actions mode
 
 - Control shows only implemented actions supported by the current selection.
-- Copy, Copy Path, Move, AirDrop, and Terminal behavior is explicit, cancelable, and tested before being marked implemented.
+- Copy, Copy Path, Move, Rename, AirDrop, and Terminal behavior is explicit, cancelable, and tested before being marked implemented.
 - Folders and mixed selections work for actions that claim to support them.
 - Float and Quick Preview remain visibly planned/unavailable until implemented and validated.
+
+### Tasks mode
+
+- Option shows functional Optimize, Organize, Rename, and Share entries where the underlying handlers are available.
+- Tasks reuses the shared radial geometry and Yuzu Citrus Yellow active state; it does not introduce a second visual language.
 
 ### Interaction and settings
 
 - The radial stays open after modifier release and switches modes within one drag session.
 - Normal unmodified dragging is not intercepted.
 - Escape, outside click, drag cancellation, and mouse-up with no target are safe and idempotent.
-- Default modifiers are Shift/Command/Control, persisted settings reject duplicates, and valid changes apply to the next drag without relaunch.
+- Default modifiers are Shift/Command/Control/Option, persisted settings reject duplicates, and valid changes apply to the next drag without relaunch.
 - Mode transitions are stable on Finder, Desktop, multiple monitors, and fullscreen spaces.
 
 ## 11. Testing checklist
@@ -420,4 +438,4 @@ This planning task intentionally does not modify these files. A later implementa
 - `Tests/YuzuTests.swift` — mode, settings, selection, state-machine, provider, and regression coverage.
 - `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/SECURITY.md`, and `docs/DEVELOPMENT.md` — update after behavior is implemented and verified.
 
-No implementation should begin until the mode precedence, folder semantics, compatibility policy, action collision policy, and permission behavior have been reviewed.
+This historical migration checklist is retained for follow-up work. The scoped October 2026 repair above preserves the existing mode precedence, folder semantics, action handlers, and permission behavior; runtime acceptance remains separate from source implementation.

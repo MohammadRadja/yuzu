@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let dragMonitor = DragMonitor()
@@ -30,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
             button.image = NSImage(systemSymbolName: "circle.hexagongrid.circle", accessibilityDescription: "Yuzu")
-            button.toolTip = "Yuzu: hold Shift while dragging a file"
+            button.toolTip = "Yuzu: Shift for Convert, Command for Tools, Control for Actions, Option for Tasks"
         }
         let menu = NSMenu()
         menu.addItem(withTitle: "Convert Files…", action: #selector(convertFiles), keyEquivalent: "o").target = self
@@ -50,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openTool() {
-        pickFiles { [weak self] urls in self?.radial.presentPicker(for: urls, advanced: true) }
+        pickFiles { [weak self] urls in self?.radial.presentPicker(for: urls, mode: .tools) }
     }
 
     private func pickFiles(_ completion: @escaping ([URL]) -> Void) {

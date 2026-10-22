@@ -266,6 +266,408 @@ struct YuzuTests {
             try expectEqual(ToolID.available(for: [.pdf]).count, 4)
         }
 
+        runner.test("radial modes have unique default modifiers") {
+            try expectEqual(RadialMode.allCases.count, 4)
+            try expectEqual(Set(RadialMode.allCases.map(\.defaultModifier)).count, RadialMode.allCases.count)
+            try expectEqual(RadialMode.conversion.defaultModifier, .shift)
+            try expectEqual(RadialMode.tools.defaultModifier, .command)
+            try expectEqual(RadialMode.actions.defaultModifier, .control)
+            try expectEqual(RadialMode.flow.defaultModifier, .option)
+            try expectEqual(RadialMode.conversion.title, "Convert")
+            try expectEqual(RadialMode.tools.title, "Tools")
+            try expectEqual(RadialMode.actions.title, "Actions")
+            try expectEqual(RadialMode.flow.title, "Tasks")
+        }
+
+        runner.test("modifier resolver switches modes and retains the last mode on release") {
+            let assignments = Dictionary(uniqueKeysWithValues: RadialMode.allCases.map { ($0, $0.defaultModifier) })
+            var resolver = RadialModeResolver(assignments: assignments)
+            try expectEqual(resolver.resolve(.shift), .conversion)
+            try expectEqual(resolver.resolve([.shift, .command]), .tools)
+            try expectEqual(resolver.resolve(.shift), .conversion)
+            try expectEqual(resolver.resolve([]), .conversion)
+            try expectEqual(resolver.resolve(.option), .flow)
+            try expectEqual(resolver.resolve([.shift, .option]), .tools)
+            try expect(resolver.usingLegacyAlias, "legacy Shift + Option alias is tracked")
+            try expectEqual(resolver.resolve(.shift), .conversion)
+        }
+
+        runner.test("radial provider separates conversion, tools and actions") {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-radial-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let image = directory.appendingPathComponent("sample.jpg")
+            try Data([0]).write(to: image)
+
+            let conversion = RadialProvider.content(for: [image], mode: .conversion)
+            try expect(!conversion.items.isEmpty, "jpg conversion targets are available")
+            try expect(
+                conversion.items.allSatisfy {
+                    if case .convert = $0.action { return true }
+                    return false
+                }, "conversion mode contains only conversion actions")
+
+            let tools = RadialProvider.content(for: [image], mode: .tools)
+            try expect(!tools.items.isEmpty, "jpg tools are available")
+            try expect(
+                tools.items.allSatisfy {
+                    if case .tool = $0.action { return true }
+                    return false
+                }, "tools mode contains only tool actions")
+
+            let actions = RadialProvider.content(for: [image, directory], mode: .actions)
+            try expect(actions.items.contains { $0.action == .file(.copy) }, "copy supports files and folders")
+            try expect(actions.items.contains { $0.action == .file(.copyPath) }, "copy path supports files and folders")
+            try expect(actions.items.contains { $0.action == .file(.move) }, "move supports files and folders")
+
+            let flow = RadialProvider.content(for: [image], mode: .flow)
+            try expect(flow.items.contains { $0.action == .tool(.compress) }, "Flow optimize opens the compressor")
+            try expect(flow.items.contains { $0.action == .file(.move) }, "Flow organize uses move")
+            try expect(flow.items.contains { $0.action == .file(.rename) }, "Flow rename is available for one item")
+        }
+
+        runner.test("drag URL normalization preserves folders and order") {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-drag-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let first = directory.appendingPathComponent("first.txt")
+            let second = directory.appendingPathComponent("second.txt")
+            try Data().write(to: first)
+            try Data().write(to: second)
+            let normalized = DragMonitor.normalizeURLs([second, directory, first, second, directory])
+            try expectEqual(normalized, [second.standardizedFileURL, directory.standardizedFileURL, first.standardizedFileURL])
+        }
+
+        runner.test("radial hit testing reaches every visible wedge for one through sixteen items") {
+            for count in 1...16 {
+                let geometry = RadialGeometry(count: count)
+                let rect = CGRect(x: -120, y: 80, width: geometry.canvasDiameter, height: geometry.canvasDiameter)
+                for index in 0..<count {
+                    let midpoint = geometry.midpoint(for: index, in: rect)
+                    let offset = CGPoint(x: midpoint.x - rect.midX, y: midpoint.y - rect.midY)
+                    try expectEqual(geometry.index(at: offset), index, "\(count) items, wedge \(index)")
+                    try expect(WedgeShape(geometry: geometry, index: index).path(in: rect).contains(midpoint), "visible label is inside wedge \(index)")
+                }
+            }
+        }
+
+        runner.test("radial hit testing rejects hub, outside and segment gaps") {
+            for count in 1...16 {
+                let geometry = RadialGeometry(count: count)
+                try expectEqual(geometry.index(at: .zero), nil, "\(count) items, hub")
+                for index in 0..<count {
+                    let (start, end) = geometry.angles(for: index)
+                    let mid = (start + end) / 2
+                    let hubPoint = CGPoint(x: cos(mid) * (geometry.innerRadius - 1), y: -sin(mid) * (geometry.innerRadius - 1))
+                    let outsidePoint = CGPoint(x: cos(mid) * (geometry.outerRadius + 1), y: -sin(mid) * (geometry.outerRadius + 1))
+                    try expectEqual(geometry.index(at: hubPoint), nil, "\(count) items, wedge \(index) inner edge")
+                    try expectEqual(geometry.index(at: outsidePoint), nil, "\(count) items, wedge \(index) outer edge")
+                    if count > 1 {
+                        let radius = (geometry.innerRadius + geometry.outerRadius) / 2
+                        let gapPoint = CGPoint(x: cos(start) * radius, y: -sin(start) * radius)
+                        try expectEqual(geometry.index(at: gapPoint), nil, "\(count) items, gap before wedge \(index)")
+                    }
+                }
+            }
+            try expectEqual(RadialGeometry(count: 0).index(at: .zero), nil, "empty radial")
+        }
+
+        runner.test("single-item radial draws an annulus and keeps the hub non-actionable") {
+            let geometry = RadialGeometry(count: 1)
+            let rect = CGRect(x: 0, y: 0, width: geometry.canvasDiameter, height: geometry.canvasDiameter)
+            let path = WedgeShape(geometry: geometry, index: 0).path(in: rect)
+            let midpointRadius = (geometry.innerRadius + geometry.outerRadius) / 2
+            try expectEqual(geometry.index(at: .zero), nil, "single-item hub")
+            try expectEqual(geometry.index(at: CGPoint(x: midpointRadius, y: 0)), 0, "single-item wedge")
+            try expectEqual(geometry.index(at: CGPoint(x: geometry.outerRadius + 1, y: 0)), nil, "single-item outside")
+            try expect(!path.contains(CGPoint(x: rect.midX, y: rect.midY)), "drawn wedge must exclude center")
+            try expect(!path.contains(CGPoint(x: rect.midX + geometry.innerRadius - 1, y: rect.midY)), "drawn wedge must exclude hub edge")
+            try expect(path.contains(CGPoint(x: rect.midX + midpointRadius, y: rect.midY)), "drawn ring remains actionable")
+        }
+
+        runner.test("AppKit radial hit testing maps upper and lower wedges to their rendered positions") {
+            _ = NSApplication.shared
+            let view = RadialView(frame: CGRect(x: 0, y: 0, width: 500, height: 500))
+            let centers = [NSPoint(x: 250, y: 250), NSPoint(x: -170, y: -95), NSPoint(x: 90, y: -250)]
+            for count in 1...16 {
+                view.items = Array(FileFormat.allCases.prefix(count)).map(RadialItem.init(format:))
+                let geometry = RadialGeometry(count: count)
+                let canvas = CGRect(x: 0, y: 0, width: geometry.canvasDiameter, height: geometry.canvasDiameter)
+                for center in centers {
+                    view.center = center
+                    for index in 0..<count {
+                        let midpoint = geometry.midpoint(for: index, in: canvas)
+                        let appKitPoint = NSPoint(x: center.x + midpoint.x - canvas.midX, y: center.y - (midpoint.y - canvas.midY))
+                        try expectEqual(view.index(at: appKitPoint), index, "AppKit \(count) items, wedge \(index), center \(center)")
+                    }
+                    try expectEqual(view.index(at: center), nil, "AppKit hub")
+                }
+            }
+            view.items = Array(FileFormat.allCases.prefix(6)).map(RadialItem.init(format:))
+            view.center = NSPoint(x: 250, y: 250)
+            let radius = RadialGeometry(count: 6).labelRadius
+            try expectEqual(view.index(at: NSPoint(x: 250, y: 250 + radius)), 0, "upper wedge is index zero in AppKit coordinates")
+            try expectEqual(view.index(at: NSPoint(x: 250, y: 250 - radius)), 3, "lower wedge is opposite the upper wedge")
+        }
+
+        runner.test("screen and window drag coordinates reach the same wedge across negative origins") {
+            _ = NSApplication.shared
+            let window = NSWindow(
+                contentRect: NSRect(x: -1600, y: -900, width: 640, height: 550),
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 550))
+            window.contentView = container
+            let view = RadialView(frame: NSRect(x: 47, y: 39, width: 500, height: 450))
+            container.addSubview(view)
+            view.bounds.origin = NSPoint(x: -23, y: 37)
+            view.center = NSPoint(x: view.bounds.midX, y: view.bounds.midY)
+            view.items = Array(FileFormat.allCases.prefix(8)).map(RadialItem.init(format:))
+            let geometry = RadialGeometry(count: view.items.count)
+            let canvas = CGRect(x: 0, y: 0, width: geometry.canvasDiameter, height: geometry.canvasDiameter)
+            for index in view.items.indices {
+                let midpoint = geometry.midpoint(for: index, in: canvas)
+                let localPoint = NSPoint(x: view.center.x + midpoint.x - canvas.midX, y: view.center.y - (midpoint.y - canvas.midY))
+                let windowPoint = view.convert(localPoint, to: nil)
+                view.updateHighlight(forWindowPoint: windowPoint)
+                try expectEqual(view.highlighted, index, "window coordinate for wedge \(index)")
+                view.clearHighlight()
+                let screenPoint = window.convertPoint(toScreen: windowPoint)
+                view.updateHighlight(forScreenPoint: screenPoint)
+                try expectEqual(view.highlighted, index, "screen coordinate for wedge \(index)")
+            }
+            let hubScreenPoint = window.convertPoint(toScreen: view.convert(view.center, to: nil))
+            view.updateHighlight(forScreenPoint: hubScreenPoint)
+            try expectEqual(view.highlighted, nil, "entering hub clears the last screen-coordinate hover")
+            let outside = NSPoint(x: view.center.x + geometry.outerRadius + 1, y: view.center.y)
+            view.updateHighlight(forScreenPoint: window.convertPoint(toScreen: view.convert(outside, to: nil)))
+            try expectEqual(view.highlighted, nil, "leaving ring clears screen-coordinate hover")
+        }
+
+        runner.test("radial item replacement clears stale highlight and rejects invalid indices") {
+            _ = NSApplication.shared
+            let view = RadialView(frame: NSRect(x: 0, y: 0, width: 500, height: 500))
+            let conversions = [RadialItem(format: .png), RadialItem(format: .pdf)]
+            view.items = conversions
+            view.highlight(1)
+            try expectEqual(view.highlighted, 1)
+            view.items = conversions
+            try expectEqual(view.highlighted, 1, "unchanged content preserves hover")
+            view.items = [RadialItem(fileAction: .copy), RadialItem(fileAction: .move)]
+            try expectEqual(view.highlighted, nil, "same-sized provider replacement invalidates selected action")
+            view.highlight(-1)
+            try expectEqual(view.highlighted, nil, "negative index is invalid")
+            view.highlight(view.items.count)
+            try expectEqual(view.highlighted, nil, "out-of-range index is invalid")
+            view.highlight(0)
+            view.items = []
+            try expectEqual(view.highlighted, nil, "empty provider clears hover")
+        }
+
+        runner.test("radial placement stays inside display edges including negative screen origins") {
+            let diameter = RadialGeometry(count: 6).canvasDiameter
+            let screens = [
+                NSRect(x: 0, y: 24, width: 1440, height: 876),
+                NSRect(x: -1920, y: -1080, width: 1920, height: 1056),
+                NSRect(x: 1440, y: -200, width: 1280, height: 1000),
+            ]
+            for screen in screens {
+                let anchors = [
+                    NSPoint(x: screen.midX, y: screen.midY),
+                    NSPoint(x: screen.minX, y: screen.minY),
+                    NSPoint(x: screen.minX, y: screen.maxY),
+                    NSPoint(x: screen.maxX, y: screen.minY),
+                    NSPoint(x: screen.maxX, y: screen.maxY),
+                    NSPoint(x: screen.minX - 100, y: screen.maxY + 100),
+                ]
+                for anchor in anchors {
+                    let frame = RadialPlacement.frame(anchoredAt: anchor, in: screen, diameter: diameter)
+                    try expect(screen.contains(frame), "panel fits display \(screen) at anchor \(anchor)")
+                    try expectEqual(frame.size, NSSize(width: diameter, height: diameter), "placement preserves point dimensions")
+                }
+                let center = NSPoint(x: screen.midX, y: screen.midY)
+                let frame = RadialPlacement.frame(anchoredAt: center, in: screen, diameter: diameter)
+                try expectEqual(NSPoint(x: frame.midX, y: frame.midY), center, "unclamped radial remains centered on anchor")
+            }
+            let smallScreen = NSRect(x: -240, y: -160, width: 200, height: 120)
+            let frame = RadialPlacement.frame(anchoredAt: .zero, in: smallScreen, diameter: diameter)
+            try expect(smallScreen.contains(frame), "oversized requested panel fits available display")
+            try expectEqual(frame.size, NSSize(width: 120, height: 120), "panel preserves square shape when constrained")
+        }
+
+        runner.test("drag session follows presentation hover commit and completion exactly once") {
+            var session = RadialDragSession()
+            let id = UUID()
+            let file = URL(fileURLWithPath: "/tmp/yuzu-session.png")
+            try expectEqual(session.phase, .idle)
+            try expect(session.begin(id: id, urls: [file]), "begin drag")
+            try expectEqual(session.phase, .dragging)
+            session.hover(0)
+            try expectEqual(session.phase, .dragging, "hover waits for presentation")
+            session.present()
+            try expectEqual(session.phase, .radialPresented)
+            try expect(session.bind(sequenceNumber: 17), "bind native drag")
+            session.hover(0)
+            session.hover(3)
+            try expectEqual(session.phase, .hoveringWedge(3), "hover follows each wedge")
+            try expect(session.commit(id: id, sequenceNumber: 17, index: 3), "valid release commits")
+            try expectEqual(session.phase, .committing)
+            try expect(!session.isActive, "committing stops hover updates")
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 3), "duplicate destination callback cannot commit")
+            try expect(!session.begin(id: UUID(), urls: [file]), "a committing action cannot be replaced")
+            session.cancel()
+            session.hover(1)
+            try expectEqual(session.phase, .committing, "late cancellation and hover cannot undo a commit")
+            session.complete()
+            try expectEqual(session.phase, .completed)
+            try expect(session.urls.isEmpty, "completion clears file URLs")
+            try expectEqual(session.sequenceNumber, nil, "completion clears native drag sequence")
+            try expectEqual(session.id, id, "completion retains identity to reject late callbacks")
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 3), "completed action cannot repeat")
+        }
+
+        runner.test("drag session rejects stale identities sequences and invalid targets") {
+            var session = RadialDragSession()
+            let id = UUID()
+            session.begin(id: id, urls: [URL(fileURLWithPath: "/tmp/yuzu-session.png")])
+            session.present()
+            session.hover(2)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 2), "unbound native drag cannot commit")
+            try expect(session.bind(sequenceNumber: 17), "first native sequence is accepted")
+            try expect(session.bind(sequenceNumber: 17), "repeated native update is accepted")
+            try expect(!session.bind(sequenceNumber: 18), "different native drag cannot replace binding")
+            try expect(!session.commit(id: UUID(), sequenceNumber: 17, index: 2), "wrong session cannot commit")
+            try expect(!session.commit(id: id, sequenceNumber: 18, index: 2), "wrong native sequence cannot commit")
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 1), "stale selected wedge cannot commit")
+            session.hover(-1)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: -1), "negative target cannot commit")
+            session.hover(nil)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 2), "release outside cannot commit")
+            session.cancel()
+            try expectEqual(session.phase, .cancelled, "outside release cancels")
+        }
+
+        runner.test("drag URL changes and cleared hover require a fresh target before committing") {
+            var session = RadialDragSession()
+            let id = UUID()
+            let first = URL(fileURLWithPath: "/tmp/yuzu-first.png")
+            let second = URL(fileURLWithPath: "/tmp/yuzu-second.png")
+            session.begin(id: id, urls: [first, first])
+            try expectEqual(session.urls, [first], "drag URLs are normalized")
+            session.present()
+            session.bind(sequenceNumber: 17)
+            session.hover(0)
+            session.updateURLs([first, first])
+            try expectEqual(session.phase, .hoveringWedge(0), "unchanged normalized URLs preserve hover")
+            session.updateURLs([second])
+            try expectEqual(session.phase, .radialPresented, "new file selection invalidates hover")
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 0), "previous selection cannot commit")
+            session.hover(1)
+            session.hover(nil)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 1), "mode-change hover invalidation prevents stale commit")
+            session.hover(0)
+            try expect(session.commit(id: id, sequenceNumber: 17, index: 0), "fresh hover can commit updated URLs")
+            try expectEqual(session.urls, [second], "only current URLs reach commit")
+        }
+
+        runner.test("drag session never commits empty or non-file selections") {
+            var session = RadialDragSession()
+            let id = UUID()
+            guard let remoteURL = URL(string: "https://example.invalid/image.png") else {
+                throw TestFailure(description: "invalid URL test fixture")
+            }
+            session.begin(id: id, urls: [remoteURL])
+            session.present()
+            session.bind(sequenceNumber: 17)
+            session.hover(0)
+            try expect(session.urls.isEmpty, "non-file URLs are rejected")
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 0), "empty selection cannot commit")
+            session.updateURLs([URL(fileURLWithPath: "/tmp/yuzu-session.png")])
+            session.hover(0)
+            session.updateURLs([])
+            try expectEqual(session.phase, .radialPresented, "lost URLs clear hover")
+            session.hover(0)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 0), "lost selection cannot commit")
+        }
+
+        runner.test("terminal drag sessions clear state reject resurrection and permit a new drag") {
+            let file = URL(fileURLWithPath: "/tmp/yuzu-session.png")
+            for terminal in [RadialDragSession.Phase.completed, .cancelled, .failed] {
+                var session = RadialDragSession()
+                let oldID = UUID()
+                session.begin(id: oldID, urls: [file])
+                session.present()
+                session.bind(sequenceNumber: 17)
+                session.hover(2)
+                switch terminal {
+                case .completed:
+                    try expect(session.commit(id: oldID, sequenceNumber: 17, index: 2), "commit before completing")
+                    session.complete()
+                case .cancelled: session.cancel()
+                case .failed: session.fail()
+                default: throw TestFailure(description: "unexpected terminal fixture")
+                }
+                try expectEqual(session.phase, terminal)
+                try expect(!session.isActive && session.urls.isEmpty, "terminal state releases active files")
+                try expectEqual(session.sequenceNumber, nil, "terminal state releases native sequence")
+                try expect(!session.begin(id: oldID, urls: [file]), "late update cannot resurrect same drag")
+                session.present()
+                session.hover(1)
+                session.updateURLs([file])
+                session.complete()
+                session.cancel()
+                session.fail()
+                try expectEqual(session.phase, terminal, "late callbacks preserve terminal state")
+                try expect(!session.bind(sequenceNumber: 17), "terminal state cannot rebind")
+                let newID = UUID()
+                let nextFile = URL(fileURLWithPath: "/tmp/yuzu-next.pdf")
+                try expect(session.begin(id: newID, urls: [nextFile]), "next drag starts independently")
+                try expectEqual(session.phase, .dragging)
+                try expectEqual(session.id, newID)
+                try expectEqual(session.urls, [nextFile])
+                try expectEqual(session.sequenceNumber, nil, "next drag has no stale sequence")
+                try expect(!session.commit(id: oldID, sequenceNumber: 17, index: 2), "old drag cannot commit in new session")
+            }
+        }
+
+        runner.test("drag failure during commit cannot dispatch again") {
+            var session = RadialDragSession()
+            let id = UUID()
+            session.begin(id: id, urls: [URL(fileURLWithPath: "/tmp/yuzu-session.png")])
+            session.present()
+            session.bind(sequenceNumber: 17)
+            session.hover(0)
+            try expect(session.commit(id: id, sequenceNumber: 17, index: 0), "begin commit")
+            session.fail()
+            try expectEqual(session.phase, .failed)
+            try expect(session.urls.isEmpty, "failed dispatch releases URLs")
+            try expectEqual(session.sequenceNumber, nil)
+            try expect(!session.commit(id: id, sequenceNumber: 17, index: 0), "failure cannot retry through late drop callback")
+        }
+
+        runner.test("radial active colors preserve the approved citrus palette") {
+            let expected: [(NSColor, Int, Int, Int)] = [
+                (Theme.citrusYellowNS, 248, 197, 55),
+                (Theme.goldenAmberNS, 255, 159, 28),
+                (Theme.deepAccentNS, 217, 119, 6),
+                (Theme.softHighlightNS, 255, 244, 194),
+                (Theme.activeTextNS, 37, 32, 20),
+            ]
+            for (color, red, green, blue) in expected {
+                guard let rgb = color.usingColorSpace(.sRGB) else {
+                    throw TestFailure(description: "palette color must support sRGB")
+                }
+                try expect(abs(rgb.redComponent * 255 - CGFloat(red)) < 0.01, "approved red channel")
+                try expect(abs(rgb.greenComponent * 255 - CGFloat(green)) < 0.01, "approved green channel")
+                try expect(abs(rgb.blueComponent * 255 - CGFloat(blue)) < 0.01, "approved blue channel")
+                try expectEqual(rgb.alphaComponent, 1, "active colors remain opaque")
+            }
+        }
+
         runner.test("compression presets") {
             try expect(CompressionPreset.strong.imageQuality < CompressionPreset.balanced.imageQuality, "strong is smaller")
             try expect(CompressionPreset.strong.videoBitrateFactor < CompressionPreset.balanced.videoBitrateFactor, "strong video")
@@ -396,14 +798,15 @@ struct YuzuTests {
             } catch is TestFailure { throw TestFailure(description: "launch failure must throw") } catch {}
         }
 
-        await runner.testAsync("RTFD packages export readable text") {
+        await runner.testAsync("RTFD packages enter the radial and export readable text") {
             try await withDocumentFixture { directory in
                 let source = directory.appendingPathComponent("document.rtfd")
                 let text = NSAttributedString(string: "Yuzu rich document")
                 let wrapper = try text.fileWrapper(
                     from: NSRange(location: 0, length: text.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd])
                 try wrapper.write(to: source, options: .atomic, originalContentsURL: nil)
-                try expectEqual(FileFormat.detect(source), .rtfd)
+                let radial = RadialProvider.content(for: [source], mode: .conversion)
+                try expect(radial.items.contains { $0.action == .convert(.pdf) }, "RTFD is a document package, not an ordinary folder")
                 let output = try await convertFixture(source, to: .txt, in: directory)
                 try expect(try TextFile.read(output).contains("Yuzu rich document"), "RTFD text preserved")
             }

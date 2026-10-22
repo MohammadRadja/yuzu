@@ -1,23 +1,25 @@
 # Yuzu
 
-The zero-click, local-first file converter for macOS. Hold **Shift** while dragging files in Finder to convert them; add **Option** to open advanced tools. Yuzu is designed to process selected files locally, never modify the original during conversion, and avoid telemetry.
+The zero-click, local-first file converter and file utility for macOS. Hold **Shift** while dragging files in Finder or on the Desktop to convert them, **Command** for tools, **Control** for file actions, or **Option** for Tasks. Yuzu is designed to process selected files locally, never modify the original during conversion, and avoid telemetry.
 
 Yuzu is a separately maintained application derived from the open-source Satsuma project and inspired by the Tangerine workflow. It provides 253 conversion options across images, video, audio, documents, slides, spreadsheets, subtitles and archives, plus 25 advanced file tools. Satsuma and Tangerine remain upstream acknowledgements; Yuzu does not use Tangerine proprietary branding or assets.
 
 ## How it works
 
-1. Start dragging one or more files in Finder (or any app).
+1. Start dragging one or more files or folders in Finder or on the Desktop.
 2. Hold **Shift**. A radial menu appears around the cursor with the formats the selection can be converted to.
 3. Move over a format and release to convert. Copies are written next to the originals (or to the folder chosen in Settings).
-4. Hold **Shift + Option** instead to switch the radial menu to advanced tools (Compress, Crop, Trim, Merge PDFs, …). Releasing on a tool opens its window with a live preview.
+4. Hold **Command** instead to switch the radial menu to advanced tools (Compress, Crop, Trim, Merge PDFs, …). Releasing on a tool opens its window with a live preview. **Shift + Option** remains a migration shortcut for tools.
+5. Hold **Control** for Copy, Copy Path, Move, Rename, AirDrop, or Terminal when those system services are available.
+6. Hold **Option** for Tasks: Optimize, Organize, Rename, or Share when the underlying handler is available.
 
-Keyboard: while the radial menu is open, press **Option** to toggle between formats and tools, arrow keys to choose, **Return** to apply, **Escape** to cancel.
+Keyboard: while the radial menu is open, use arrow keys to choose, **Return** to apply, and **Escape** to cancel. Modifier assignments are configurable in Settings > Shortcuts; duplicate assignments are rejected.
 
 Yuzu lives in the menu bar (no Dock icon). The status item shows job progress and opens Settings.
 
 ## Look and feel
 
-The radial menu is built from Liquid Glass wedges (`glassEffect` on a custom rounded annular-sector `Shape`, grouped in a `GlassEffectContainer`), with the selected wedge tinted orange and a glass centre pill naming the selection. Tool windows use the stock macOS title bar (title + file subtitle), card-grouped content, standard AppKit/SwiftUI controls with an orange accent, overlay scrollbars where content is taller than the window, and a bottom Cancel/Save bar. Every icon is an SF Symbol. Light and dark appearance follow the system, or can be forced in Settings.
+The radial menu is a compact citrus dial made from independent annular segments with real gaps, translucent white/silver glass surfaces, a solid Yuzu Citrus Yellow selection state, a light native Liquid Glass circular backing, a stable status hub, and upright SF Symbol labels. The radial stays light over either desktop appearance and supports keyboard selection, VoiceOver labels, screen-edge clamping, and reduced-motion transitions. Tool windows use the stock macOS title bar (title + file subtitle), card-grouped content, standard AppKit/SwiftUI controls with the shared Yuzu accent, overlay scrollbars where content is taller than the window, and a bottom Cancel/Save bar.
 
 ## Conversions
 
@@ -68,7 +70,7 @@ brisk test             # compile and run Tests/ with the app sources
 brisk archive --release
 ```
 
-During a Finder drag, Yuzu polls `NSEvent.pressedMouseButtons`, `NSEvent.modifierFlags`, `NSEvent.mouseLocation` and the system drag pasteboard (`NSPasteboard(name: .drag)`). If Finder has not published the file URLs yet, Shift plus sustained drag movement shows a generic drop target immediately; the wheel then reads the files from the drag pasteboard or `NSDraggingInfo` as soon as they become available. It does not install key-event monitors or event taps. The current implementation does use global mouse monitors, so Accessibility/Input Monitoring behavior must be verified on each supported macOS configuration. Progress shows in a floating card or a small pill under the notch (Settings > Appearance); there are no system notifications.
+During a Finder or Desktop drag, Yuzu polls `NSEvent.pressedMouseButtons`, `NSEvent.modifierFlags`, `NSEvent.mouseLocation` and the system drag pasteboard (`NSPasteboard(name: .drag)`). If Finder has not published the file URLs yet, a configured modifier plus sustained drag movement shows a non-actionable waiting state; the wheel then reads files and folders from the drag pasteboard or `NSDraggingInfo` as soon as they become available. It does not install key-event monitors or event taps. The current implementation does use global mouse monitors, so Accessibility/Input Monitoring behavior must be verified on each supported macOS configuration. Progress shows in a floating card or a small pill under the notch (Settings > Appearance); there are no system notifications.
 
 ## Logs
 
@@ -95,7 +97,7 @@ Sources/App                App delegate, status item, settings
 Sources/Formats            FileFormat enum, ConversionMatrix (253 options, output naming)
 Sources/Engines            Conversion engines: image, audio, video, document, subtitle, archive, ffmpeg bridge
 Sources/Operations         Tool backends: ImageOps, VideoOps, AudioOps, PDFOps, MetadataOps, Compressor
-Sources/Radial             Global drag/modifier monitor and the radial menu overlay
+Sources/Radial             Drag/session model, modifier monitor, radial menu, and file actions
 Sources/Core               Job runner, progress HUD (card and notch pill), shell, media probing
 Sources/Tools              Tool window shell, tool registry and the 25 tool views
 Tests                      Direct Swift tests run by `brisk test`

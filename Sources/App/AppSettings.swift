@@ -1,6 +1,6 @@
 import AppKit
-import Foundation
 import Combine
+import Foundation
 import ServiceManagement
 
 enum CompressionPreset: String, CaseIterable, Identifiable {
@@ -82,7 +82,7 @@ enum ProgressStyle: String, CaseIterable, Identifiable {
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     @Published var compressionPreset: CompressionPreset {
         didSet { defaults.set(compressionPreset.rawValue, forKey: "compressionPreset") }
@@ -123,7 +123,26 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    private init() {
+    @Published private(set) var conversionModifier: RadialModifier {
+        didSet { defaults.set(conversionModifier.rawValue, forKey: "conversionModifier") }
+    }
+
+    @Published private(set) var toolsModifier: RadialModifier {
+        didSet { defaults.set(toolsModifier.rawValue, forKey: "toolsModifier") }
+    }
+
+    @Published private(set) var actionsModifier: RadialModifier {
+        didSet { defaults.set(actionsModifier.rawValue, forKey: "actionsModifier") }
+    }
+
+    @Published private(set) var flowModifier: RadialModifier {
+        didSet { defaults.set(flowModifier.rawValue, forKey: "flowModifier") }
+    }
+
+    @Published private(set) var modifierConflict: String?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         compressionPreset = CompressionPreset(rawValue: defaults.string(forKey: "compressionPreset") ?? "") ?? .balanced
         compressionResizeLongEdge = defaults.integer(forKey: "compressionResizeLongEdge")
         outputLocation = OutputLocation(rawValue: defaults.string(forKey: "outputLocation") ?? "") ?? .besideOriginal
@@ -132,6 +151,22 @@ final class AppSettings: ObservableObject {
         ffmpegPath = defaults.string(forKey: "ffmpegPath") ?? ""
         jpegQuality = defaults.object(forKey: "jpegQuality") as? Double ?? 0.9
         appearanceMode = AppearanceMode(rawValue: defaults.string(forKey: "appearanceMode") ?? "") ?? .system
+        let storedConversion = RadialModifier(rawValue: defaults.string(forKey: "conversionModifier") ?? "") ?? .shift
+        let storedTools = RadialModifier(rawValue: defaults.string(forKey: "toolsModifier") ?? "") ?? .command
+        let storedActions = RadialModifier(rawValue: defaults.string(forKey: "actionsModifier") ?? "") ?? .control
+        let storedFlow = RadialModifier(rawValue: defaults.string(forKey: "flowModifier") ?? "") ?? .option
+        if Set([storedConversion, storedTools, storedActions, storedFlow]).count == 4 {
+            conversionModifier = storedConversion
+            toolsModifier = storedTools
+            actionsModifier = storedActions
+            flowModifier = storedFlow
+        } else {
+            conversionModifier = .shift
+            toolsModifier = .command
+            actionsModifier = .control
+            flowModifier = .option
+        }
+        modifierConflict = nil
         if #available(macOS 13.0, *) {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         } else {
@@ -141,6 +176,36 @@ final class AppSettings: ObservableObject {
 
     func applyAppearance() {
         NSApp.appearance = appearanceMode.appearance
+    }
+
+    var modifierAssignments: [RadialMode: RadialModifier] {
+        [
+            .conversion: conversionModifier,
+            .tools: toolsModifier,
+            .actions: actionsModifier,
+            .flow: flowModifier,
+        ]
+    }
+
+    func modifier(for mode: RadialMode) -> RadialModifier {
+        modifierAssignments[mode] ?? mode.defaultModifier
+    }
+
+    @discardableResult
+    func setModifier(_ modifier: RadialModifier, for mode: RadialMode) -> Bool {
+        let duplicate = RadialMode.allCases.first { $0 != mode && self.modifier(for: $0) == modifier }
+        if let duplicate {
+            modifierConflict = "\(modifier.title) is already assigned to \(duplicate.title). Choose a different modifier."
+            return false
+        }
+        modifierConflict = nil
+        switch mode {
+        case .conversion: conversionModifier = modifier
+        case .tools: toolsModifier = modifier
+        case .actions: actionsModifier = modifier
+        case .flow: flowModifier = modifier
+        }
+        return true
     }
 
     private func applyLaunchAtLogin() {
