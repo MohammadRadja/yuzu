@@ -72,6 +72,8 @@ struct SettingsView: View {
         }
         Section("General") {
             Toggle("Launch Yuzu at login", isOn: $settings.launchAtLogin)
+            Toggle("Play sound when selecting a radial action", isOn: $settings.radialSoundEnabled)
+                .help("Play a short click when the pointer or arrow keys select a different radial action.")
         }
     }
 

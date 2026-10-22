@@ -329,6 +329,9 @@ final class RadialView: NSView {
     private(set) var highlighted: Int? {
         didSet {
             guard oldValue != highlighted else { return }
+            if window?.isVisible == true {
+                RadialSelectionSound.shared.selectionChanged(to: highlighted)
+            }
             if highlighted != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                 NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .drawCompleted)
             }

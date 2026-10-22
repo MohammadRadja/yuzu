@@ -279,6 +279,41 @@ struct YuzuTests {
             try expectEqual(RadialMode.flow.title, "Tasks")
         }
 
+        runner.test("radial sound plays only for fresh selections and limits rapid sweeps") {
+            var gate = RadialSoundGate()
+            try expect(!gate.shouldPlay(selection: nil, enabled: true, now: 0), "hub stays silent")
+            try expect(gate.shouldPlay(selection: 0, enabled: true, now: 0), "first wedge clicks")
+            try expect(!gate.shouldPlay(selection: 0, enabled: true, now: 0.1), "repeated native updates stay silent")
+            try expect(!gate.shouldPlay(selection: 1, enabled: true, now: 0.02), "fast sweep is limited")
+            try expect(gate.shouldPlay(selection: 2, enabled: true, now: 0.06), "next distinct wedge clicks")
+            try expect(!gate.shouldPlay(selection: nil, enabled: true, now: 0.12), "leaving the ring stays silent")
+            try expect(gate.shouldPlay(selection: 2, enabled: true, now: 0.13), "re-entering a wedge clicks")
+            try expect(!gate.shouldPlay(selection: 3, enabled: false, now: 0.2), "mute suppresses feedback")
+            try expect(!gate.shouldPlay(selection: 3, enabled: true, now: 0.3), "unmuting does not replay stationary hover")
+            try expect(gate.shouldPlay(selection: 4, enabled: true, now: 0.4), "new selection works after unmuting")
+        }
+
+        runner.test("radial sound defaults on and persists mute preference") {
+            let suite = "yuzu-sound-tests-\(UUID().uuidString)"
+            guard let defaults = UserDefaults(suiteName: suite) else {
+                throw TestFailure(description: "cannot create isolated preferences")
+            }
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(defaults: defaults)
+            try expect(settings.radialSoundEnabled, "feedback starts enabled")
+            settings.radialSoundEnabled = false
+            try expect(!AppSettings(defaults: defaults).radialSoundEnabled, "mute survives a new settings instance")
+            settings.radialSoundEnabled = true
+            try expect(AppSettings(defaults: defaults).radialSoundEnabled, "feedback can be enabled again")
+        }
+
+        runner.test("synthesized radial click decodes as a short quiet sound") {
+            guard let sound = NSSound(data: RadialSelectionSound.clickData()) else {
+                throw TestFailure(description: "generated click is not valid audio")
+            }
+            try expect(abs(sound.duration - 0.03) < 0.002, "click lasts thirty milliseconds")
+        }
+
         runner.test("modifier resolver switches modes and retains the last mode on release") {
             let assignments = Dictionary(uniqueKeysWithValues: RadialMode.allCases.map { ($0, $0.defaultModifier) })
             var resolver = RadialModeResolver(assignments: assignments)

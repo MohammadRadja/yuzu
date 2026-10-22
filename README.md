@@ -19,7 +19,7 @@ Yuzu lives in the menu bar (no Dock icon). The status item shows job progress an
 
 ## Look and feel
 
-The radial menu is a compact citrus dial made from independent annular segments with real gaps, translucent white/silver glass surfaces, a solid Yuzu Citrus Yellow selection state, a light native Liquid Glass circular backing, a stable status hub, and upright SF Symbol labels. The radial stays light over either desktop appearance and supports keyboard selection, VoiceOver labels, screen-edge clamping, and reduced-motion transitions. Tool windows use the stock macOS title bar (title + file subtitle), card-grouped content, standard AppKit/SwiftUI controls with the shared Yuzu accent, overlay scrollbars where content is taller than the window, and a bottom Cancel/Save bar.
+The radial menu is a compact citrus dial made from independent annular segments with real gaps, translucent white/silver glass surfaces, a solid Yuzu Citrus Yellow selection state, a light native Liquid Glass circular backing, a stable status hub, and upright SF Symbol labels. The radial stays light over either desktop appearance and supports keyboard selection, VoiceOver labels, screen-edge clamping, and reduced-motion transitions. A short synthesized click accompanies each newly selected wedge; disable it in Settings > General. Tool windows use the stock macOS title bar (title + file subtitle), card-grouped content, standard AppKit/SwiftUI controls with the shared Yuzu accent, overlay scrollbars where content is taller than the window, and a bottom Cancel/Save bar.
 
 ## Conversions
 

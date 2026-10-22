@@ -84,6 +84,10 @@ final class AppSettings: ObservableObject {
 
     private let defaults: UserDefaults
 
+    @Published var radialSoundEnabled: Bool {
+        didSet { defaults.set(radialSoundEnabled, forKey: "radialSoundEnabled") }
+    }
+
     @Published var compressionPreset: CompressionPreset {
         didSet { defaults.set(compressionPreset.rawValue, forKey: "compressionPreset") }
     }
@@ -143,6 +147,7 @@ final class AppSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        radialSoundEnabled = defaults.object(forKey: "radialSoundEnabled") as? Bool ?? true
         compressionPreset = CompressionPreset(rawValue: defaults.string(forKey: "compressionPreset") ?? "") ?? .balanced
         compressionResizeLongEdge = defaults.integer(forKey: "compressionResizeLongEdge")
         outputLocation = OutputLocation(rawValue: defaults.string(forKey: "outputLocation") ?? "") ?? .besideOriginal

@@ -40,6 +40,8 @@ These behaviors were inspected in source; Finder/Desktop interaction has not bee
 
 Opt-in `YUZU_DEBUG_DRAG` logs session IDs, pasteboard generations and URL counts, panel presentation, modifier changes, native sequence/mask, coordinate conversions, hit results, hover changes, release, commitment, action execution, and cancellation. Coordinate logging is throttled to 250 ms; logging is disabled unless the environment variable is set. See `docs/DEVELOPMENT.md` for validation commands and results.
 
+`Sources/Radial/RadialSelectionSound.swift` generates a 30 ms mono PCM click in memory and caches one `NSSound`. Visible hover and keyboard selection changes use the same feedback path; repeated updates, hub/gaps, and resets are silent. A 45 ms gate limits rapid sweeps. `AppSettings.radialSoundEnabled` defaults to true and persists the Settings > General toggle. No audio resource, network access, or new framework is required. The Option mode is displayed as Tasks; internal `.flow` identifiers and stored `flowModifier` preferences remain compatible.
+
 ## Conversion workflow
 
 `FileFormat.detect` identifies supported formats from extensions and aliases. `ConversionMatrix` computes targets, intersections for mixed selections, output names, collision suffixes, and the 253-option total. `JobRunner` creates one asynchronous job per source, limits concurrency with `AsyncSemaphore(limit: 2)`, reports progress, reveals outputs when configured, and presents a card or pill HUD.

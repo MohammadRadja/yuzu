@@ -1,6 +1,6 @@
 # Yuzu Design System
 
-> Status: Approved design direction with the October 2026 radial repair implemented in source. The light glass backing, solid selection, and captions were inspected in offscreen previews and temporary native windows under both system appearances. Live Finder/Desktop interaction and accessibility settings still require manual validation; acceptance boxes below remain unverified.
+> Status: Approved design direction with the October 2026 radial repair implemented in source. The light glass backing, solid selection, and captions were inspected in offscreen previews and temporary native windows under both system appearances. Live Finder/Desktop interaction, audible feedback, and accessibility settings still require manual validation; acceptance boxes below remain unverified.
 
 ## 1. Product direction
 
@@ -168,7 +168,7 @@ The modifier-to-mode mapping is implemented through `RadialMode`, `AppSettings`,
 - Mode switch: replace content immediately without moving the panel or morphing hit targets.
 - Commit: dismiss after the native destination claims the drop, then dispatch the existing operation.
 - These immediate state changes also respect **Reduce Motion**; alignment haptics are suppressed when Reduce Motion is enabled.
-- No sound by default; any future feedback sound must be optional.
+- A short, original synthesized click plays when the pointer or arrow keys enter a different action on a visible wheel. Sound is enabled by default and can be disabled in Settings > General. Repeated native updates, hub/gaps, empty wheels, dismissal, and mode resets are silent; rapid sweeps are limited to one click per 45 ms. The audio is generated locally in memory and does not use Tangerine assets. Sound remains independent of the existing Reduce Motion haptic suppression.
 
 ## 9. Other Yuzu surfaces
 
