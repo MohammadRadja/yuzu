@@ -1,5 +1,7 @@
 import AppKit
+import CoreImage
 import CoreText
+import CoreVideo
 import Foundation
 import PDFKit
 import Vision
@@ -180,6 +182,31 @@ enum PDFPasswordOps {
 }
 
 enum OCROps {
+    private static let cpuContext = CIContext(options: [.useSoftwareRenderer: true])
+
+    private static func cpuHandler(for image: CGImage) throws -> VNImageRequestHandler {
+        guard image.width > 0, image.height > 0, image.width <= 8192, image.height <= 8192,
+            image.width * image.height <= 16_000_000
+        else { throw YuzuError.invalidInput("Resize this image to at most 16 megapixels before recognizing text.") }
+        var buffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
+        guard CVPixelBufferCreate(kCFAllocatorDefault, image.width, image.height, kCVPixelFormatType_32BGRA, attributes, &buffer) == kCVReturnSuccess,
+            let buffer, CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess
+        else { throw YuzuError.encodeFailed("OCR pixel buffer") }
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let context = CGContext(
+                data: CVPixelBufferGetBaseAddress(buffer), width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { throw YuzuError.encodeFailed("OCR pixel conversion") }
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(bounds)
+        context.draw(image, in: bounds)
+        return VNImageRequestHandler(cvPixelBuffer: buffer, options: [.ciContext: cpuContext])
+    }
+
     static func recognize(
         _ image: CGImage,
         perform: ((VNImageRequestHandler, VNRecognizeTextRequest) throws -> Void)? = nil
@@ -201,8 +228,7 @@ enum OCROps {
             // Some virtualized Macs cannot execute Vision's accelerated path.
             // Retry once with a fresh request and only supported CPU devices.
             let fallback = makeRequest()
-            // Device enumeration can itself fail. The compatibility CPU flag
-            // also covers preprocessing outside the enumerated compute stages.
+            // Device enumeration can itself fail on a virtualized host.
             fallback.usesCPUOnly = true
             if let stages = try? fallback.supportedComputeStageDevices {
                 for (stage, devices) in stages {
@@ -213,7 +239,7 @@ enum OCROps {
                     }
                 }
             }
-            try execute(VNImageRequestHandler(cgImage: image), fallback)
+            try execute(cpuHandler(for: image), fallback)
             request = fallback
         }
         try Task.checkCancellation()

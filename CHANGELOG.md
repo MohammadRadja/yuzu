@@ -21,7 +21,7 @@
 
 ### Bug Fixes
 
-- Retry failed Vision OCR once with supported CPU compute devices when the initial recognition path is unavailable.
+- Retry failed Vision OCR once with CPU compute devices, a bounded software-rendered sRGB BGRA input buffer, and a software Core Image context when the initial recognition path is unavailable.
 
 - Fix WebP encoding availability and reject raw HEVC output incorrectly presented as HEIC.
 - Preserve transparent PNG format during compression, including target-size requests.
