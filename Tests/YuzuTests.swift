@@ -660,6 +660,17 @@ struct YuzuTests {
                     }
                     try expectEqual(attempts, 2, "OCR retries once")
                     try expect(cpuText.localizedCaseInsensitiveContains("Yuzu"), "CPU retry recognizes actual image text")
+                    phase = "compatible OCR revision"
+                    var compatibilityAttempts = 0
+                    let compatibleText = try OCROps.recognize(image) { handler, request in
+                        compatibilityAttempts += 1
+                        if compatibilityAttempts <= 2 { throw YuzuError.encodeFailed("simulated unavailable current OCR reader") }
+                        try expectEqual(request.revision, 2, "use the supported compatible Vision revision")
+                        try expect(!request.automaticallyDetectsLanguage && request.usesCPUOnly, "compatible request has supported CPU settings")
+                        try handler.perform([request])
+                    }
+                    try expectEqual(compatibilityAttempts, 3, "OCR uses a bounded compatibility retry")
+                    try expect(compatibleText.localizedCaseInsensitiveContains("Yuzu"), "compatible Vision revision recognizes real text")
                 } catch {
                     let detail = error as NSError
                     throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")

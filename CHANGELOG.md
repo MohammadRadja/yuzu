@@ -21,7 +21,7 @@
 
 ### Bug Fixes
 
-- Retry failed Vision OCR once with CPU compute devices, a bounded software-rendered sRGB BGRA input buffer, and a software Core Image context when the initial recognition path is unavailable.
+- Retry failed Vision OCR once with CPU compute devices, a bounded software-rendered sRGB BGRA input buffer, and a software Core Image context when the initial recognition path is unavailable; use the supported earlier Vision OCR revision if the current reader still fails.
 
 - Fix WebP encoding availability and reject raw HEVC output incorrectly presented as HEIC.
 - Preserve transparent PNG format during compression, including target-size requests.
@@ -44,6 +44,7 @@
 - Fresh-profile installation, native file-picker navigation, Desktop-origin drags, full VoiceOver/keyboard/appearance coverage, and additional media/archive variants remain manual acceptance work. Process-owned GUI checks do not certify them.
 - PDF-to-SVG embeds raster pages; PDF-to-PPTX uses image slides; PDF-to-XLSX extracts text. PDF rewrites may discard forms/outlines or invalidate existing digital signatures. Visual signatures are image overlays, not cryptographic signatures.
 - HTML import is text-only without web-resource loading. YAML supports a bounded subset; XML comments/processing instructions are not retained. Legacy resource-fork-only text clippings are rejected. Pages fidelity depends on LibreOffice and document version.
+- The compatibility OCR retry uses an earlier Vision revision without automatic language detection; review extracted text, especially for other scripts.
 - Upscale uses interpolation rather than AI reconstruction. Background-mask quality and partial-frame GIF disposal/transparency/timing need broader review. WebP animations are bounded to 640 pixels and 5,000 frames; videos to 400 seconds at 12 fps.
 - Archive compression/encryption/multi-volume support depends on the OS reader. Extraction limits are intentional. Duplicate Finder reviews files without deleting originals; completed Batch Optimize copies remain after cancellation.
 

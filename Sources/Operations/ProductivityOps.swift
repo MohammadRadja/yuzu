@@ -212,11 +212,12 @@ enum OCROps {
         perform: ((VNImageRequestHandler, VNRecognizeTextRequest) throws -> Void)? = nil
     ) throws -> String {
         try Task.checkCancellation()
-        func makeRequest() -> VNRecognizeTextRequest {
+        func makeRequest(compatible: Bool = false) -> VNRecognizeTextRequest {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
+            request.automaticallyDetectsLanguage = !compatible
+            if compatible { request.revision = VNRecognizeTextRequestRevision2 }
             return request
         }
         let execute = perform ?? { try $0.perform([$1]) }
@@ -225,22 +226,33 @@ enum OCROps {
             try execute(VNImageRequestHandler(cgImage: image), request)
         } catch {
             try Task.checkCancellation()
-            // Some virtualized Macs cannot execute Vision's accelerated path.
-            // Retry once with a fresh request and only supported CPU devices.
-            let fallback = makeRequest()
-            // Device enumeration can itself fail on a virtualized host.
-            fallback.usesCPUOnly = true
-            if let stages = try? fallback.supportedComputeStageDevices {
-                for (stage, devices) in stages {
-                    if let cpu = devices.first(where: {
-                        if case .cpu = $0 { return true }; return false
-                    }) {
-                        fallback.setComputeDevice(cpu, for: stage)
+            func cpuRequest(compatible: Bool = false) -> VNRecognizeTextRequest {
+                let request = makeRequest(compatible: compatible)
+                request.usesCPUOnly = true
+                if let stages = try? request.supportedComputeStageDevices {
+                    for (stage, devices) in stages {
+                        if let cpu = devices.first(where: {
+                            if case .cpu = $0 { return true }; return false
+                        }) {
+                            request.setComputeDevice(cpu, for: stage)
+                        }
                     }
                 }
+                return request
             }
-            try execute(cpuHandler(for: image), fallback)
-            request = fallback
+            let fallback = cpuRequest()
+            do {
+                try execute(cpuHandler(for: image), fallback)
+                request = fallback
+            } catch {
+                try Task.checkCancellation()
+                guard VNRecognizeTextRequest.supportedRevisions.contains(VNRecognizeTextRequestRevision2) else { throw error }
+                // The current OCR reader can remain unavailable in a VM even
+                // with software input. Vision retains its earlier OCR revision.
+                let compatible = cpuRequest(compatible: true)
+                try execute(cpuHandler(for: image), compatible)
+                request = compatible
+            }
         }
         try Task.checkCancellation()
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
