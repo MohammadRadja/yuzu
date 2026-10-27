@@ -6,16 +6,16 @@ enum ConversionMatrix {
         switch source {
         case .jpg, .png:
             list = FileFormat.imageTargets + [.docx]
-        case .webp, .heic, .tiff, .svg, .avif, .bmp:
+        case .webp, .heic, .tiff, .svg, .avif, .bmp, .ico, .icns:
             list = FileFormat.imageTargets
         case .mp3, .m4a, .wav, .flac, .ogg, .opus, .aiff, .wma:
             list = FileFormat.audio
         case .mp4, .mov, .mkv, .webm, .avi, .wmv:
-            list = FileFormat.video + [.gif, .mp3]
+            list = FileFormat.video + [.gif, .mp3, .webp]
         case .gif:
-            list = FileFormat.video
+            list = FileFormat.video + [.webp]
         case .pdf:
-            list = [.docx, .pptx, .xlsx, .jpg, .png, .epub, .txt, .md]
+            list = [.docx, .pptx, .xlsx, .jpg, .png, .epub, .txt, .md, .svg]
         case .txt:
             list = [.pdf, .jpg, .png, .srt, .vtt, .docx, .md, .epub, .html]
         case .docx, .pages, .md, .epub, .rtf, .rtfd:
@@ -25,7 +25,10 @@ enum ConversionMatrix {
         case .xls, .xlsx, .ods, .csv, .tsv:
             list = FileFormat.spreadsheetTargets
         case .html:
-            list = []  // Export only: do not load remote resources from HTML input.
+            list = [.pdf, .docx, .txt]  // Offline text extraction; no browser resource loading.
+        case .textClipping: list = [.txt, .md, .pdf]
+        case .json: list = [.yaml, .xml]
+        case .yaml, .xml: list = [.json]
         case .srt, .vtt:
             list = FileFormat.subtitles + [.txt]
         case .zip, .tar, .gz, .rar:

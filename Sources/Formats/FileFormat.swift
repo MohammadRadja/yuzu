@@ -47,11 +47,12 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
     case xls, xlsx, ods, csv, tsv
     case srt, vtt
     case zip, tar, gz, rar
+    case ico, icns, textClipping, json, yaml, xml
 
     var id: String { rawValue }
 
-    static let images: [FileFormat] = [.jpg, .png, .webp, .heic, .tiff, .svg, .avif, .bmp]
-    static let imageTargets: [FileFormat] = [.jpg, .png, .webp, .heic, .tiff, .avif, .bmp, .pdf]
+    static let images: [FileFormat] = [.jpg, .png, .webp, .heic, .tiff, .svg, .avif, .bmp, .ico, .icns]
+    static let imageTargets: [FileFormat] = [.jpg, .png, .webp, .heic, .tiff, .avif, .bmp, .pdf, .ico, .icns]
     static let audio: [FileFormat] = [.mp3, .m4a, .wav, .flac, .ogg, .opus, .aiff, .wma]
     static let video: [FileFormat] = [.mp4, .mov, .mkv, .webm, .avi, .wmv]
     static let subtitles: [FileFormat] = [.srt, .vtt]
@@ -61,6 +62,8 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
 
     var category: FormatCategory {
         switch self {
+        case .ico, .icns: return .image
+        case .textClipping, .json, .yaml, .xml: return .document
         case .jpg, .png, .webp, .heic, .tiff, .svg, .avif, .bmp: return .image
         case .gif: return .video
         case .mp3, .m4a, .wav, .flac, .ogg, .opus, .aiff, .wma: return .audio
@@ -89,6 +92,8 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
 
     var aliases: [String] {
         switch self {
+        case .yaml: return ["yaml", "yml"]
+        case .textClipping: return ["textclipping"]
         case .jpg: return ["jpg", "jpeg", "jpe", "jfif"]
         case .tiff: return ["tiff", "tif"]
         case .heic: return ["heic", "heif"]
@@ -106,6 +111,12 @@ enum FileFormat: String, CaseIterable, Identifiable, Hashable {
 
     var utType: UTType? {
         switch self {
+        case .ico: return UTType("com.microsoft.ico")
+        case .icns: return UTType("com.apple.icns")
+        case .json: return .json
+        case .yaml: return UTType("public.yaml")
+        case .xml: return .xml
+        case .textClipping: return UTType(filenameExtension: "textClipping")
         case .jpg: return .jpeg
         case .png: return .png
         case .webp: return .webP

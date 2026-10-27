@@ -6,13 +6,21 @@ struct VideoEngine: ConversionEngine {
 
     func supports(from: FileFormat, to: FileFormat) -> Bool {
         guard from.category == .video else { return false }
-        return to.category == .video || to == .mp3
+        return to.category == .video || to == .mp3 || to == .webp
     }
 
     func convert(_ request: ConversionRequest) async throws {
+        if request.target == .webp, NativeWebPAnimation.isAvailable {
+            let readable = request.sourceFormat == .gif ? true : await MediaInfo.isNativelyReadable(request.source)
+            if readable {
+                try await NativeWebPAnimation.convert(request.source, to: request.destination, progress: request.progress)
+                return
+            }
+        }
         if Self.nativeTargets.contains(request.target), request.sourceFormat != .gif, await MediaInfo.isNativelyReadable(request.source) {
             let asset = AVURLAsset(url: request.source)
-            try await AVExporter.export(asset: asset, to: request.destination, format: request.target, preset: AVAssetExportPresetHighestQuality, progress: request.progress)
+            try await AVExporter.export(
+                asset: asset, to: request.destination, format: request.target, preset: AVAssetExportPresetHighestQuality, progress: request.progress)
             return
         }
         if request.target == .mp3 {
@@ -49,10 +57,30 @@ struct VideoEngine: ConversionEngine {
         return args
     }
 
-    static func ffmpegConvert(source: URL, destination: URL, target: FileFormat, videoFilters: [String] = [], videoBitrate: Int? = nil, audioBitrate: Int? = nil, progress: @escaping (Double) -> Void) async throws {
+    static func ffmpegConvert(
+        source: URL, destination: URL, target: FileFormat, videoFilters: [String] = [], videoBitrate: Int? = nil, audioBitrate: Int? = nil,
+        progress: @escaping (Double) -> Void
+    ) async throws {
+        let capabilities = await RuntimeCapabilities.refresh()
+        guard capabilities.canEncodeMedia(target) else {
+            throw YuzuError.invalidInput(
+                "The selected FFmpeg does not provide the encoder and container for \(target.displayName). Check Settings or choose another format.")
+        }
         let duration = await FFmpeg.probeDuration(source)
+        if target == .webp {
+            let args = [
+                "-i", source.path, "-an", "-vf", "fps=12,scale='min(640,iw)':-2:flags=lanczos", "-c:v", "libwebp_anim", "-quality", "85", "-loop", "0", "-f",
+                "webp", destination.path,
+            ]
+            try await FFmpeg.run(args, purpose: "Creating animated WebP", duration: duration, progress: progress)
+            return
+        }
         if target == .gif {
-            let filters = videoFilters + ["fps=12", "scale='min(640,iw)':-2:flags=lanczos", "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5"]
+            let filters =
+                videoFilters + [
+                    "fps=12", "scale='min(640,iw)':-2:flags=lanczos",
+                    "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5",
+                ]
             let args = ["-i", source.path, "-vf", filters.joined(separator: ","), "-loop", "0", "-f", "gif", destination.path]
             try await FFmpeg.run(args, purpose: "Creating GIF", duration: duration, progress: progress)
             return

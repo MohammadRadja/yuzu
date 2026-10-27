@@ -5,6 +5,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum ImageIOBridge {
+    static let nativeDecoders = Set(CGImageSourceCopyTypeIdentifiers() as? [String] ?? [])
     static let nativeEncoders: Set<String> = {
         let ids = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
         return Set(ids)
@@ -23,7 +24,9 @@ enum ImageIOBridge {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let width = (properties[kCGImagePropertyPixelWidth] as? Int) ?? 0
         let height = (properties[kCGImagePropertyPixelHeight] as? Int) ?? 0
-        DiagnosticLog.log("image load \(url.lastPathComponent) type=\((CGImageSourceGetType(source) as String?) ?? "?") \(width)x\(height) max=\(maxPixelSize.map(String.init) ?? "none")")
+        DiagnosticLog.log(
+            "image load \(url.lastPathComponent) type=\((CGImageSourceGetType(source) as String?) ?? "?") \(width)x\(height) max=\(maxPixelSize.map(String.init) ?? "none")"
+        )
         let longest = max(width, height, 1)
         var options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -49,11 +52,13 @@ enum ImageIOBridge {
         let target = CGFloat(maxPixelSize ?? 2048)
         let scale = max(target / max(size.width, size.height), 1)
         let pixelSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int(pixelSize.width), pixelsHigh: Int(pixelSize.height),
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        ) else { throw YuzuError.unreadable(url) }
+        guard
+            let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(pixelSize.width), pixelsHigh: Int(pixelSize.height),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            )
+        else { throw YuzuError.unreadable(url) }
         rep.size = pixelSize
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
@@ -101,15 +106,42 @@ enum ImageIOBridge {
     }
 
     static func writeAnyFormat(_ image: CGImage, to url: URL, format: FileFormat, quality: Double = 0.9) async throws {
+        try Task.checkCancellation()
+        guard FileFormat.detect(url) == format else {
+            throw YuzuError.invalidInput("The output extension must match \(format.displayName).")
+        }
+        if format == .ico || format == .icns {
+            try IconWriter.write(image, to: url, icns: format == .icns)
+            return
+        }
         if canEncodeNatively(format) {
             try write(image, to: url, format: format, quality: quality)
             return
         }
-        DiagnosticLog.log("no native encoder for \(format.rawValue), using ffmpeg")
+        if format == .webp, BundledWebP.isAvailable {
+            try BundledWebP.write(image, to: url, quality: quality)
+            try await OutputValidator.validate(url, as: .webp)
+            return
+        }
+        let capabilities = await RuntimeCapabilities.refresh()
+        guard capabilities.canEncodeImage(format) else {
+            throw YuzuError.invalidInput("No working \(format.displayName) encoder is available. Check the backend in Settings or choose another format.")
+        }
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("yuzu-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: temp) }
         try write(image, to: temp, format: .png)
+        if format == .webp, let cwebp = capabilities.cwebpPath {
+            let result = try await Shell.run(
+                cwebp, ["-quiet", "-q", String(Int(min(1, max(0, quality)) * 100)), temp.path, "-o", url.path], outputLimit: 64_000)
+            if result.succeeded {
+                try await OutputValidator.validate(url, as: format)
+                return
+            }
+            guard capabilities.encoders.contains("libwebp") else { throw YuzuError.toolFailed("cwebp", FFmpeg.summarize(result.stderr)) }
+            try? FileManager.default.removeItem(at: url)
+        }
         try await encodeWithFFmpeg(png: temp, to: url, format: format, quality: quality)
+        try await OutputValidator.validate(url, as: format)
     }
 
     static func encodeWithFFmpeg(png: URL, to url: URL, format: FileFormat, quality: Double) async throws {
@@ -120,8 +152,6 @@ enum ImageIOBridge {
         case .avif:
             let crf = Int((1 - quality) * 50 + 10)
             args += ["-c:v", "libaom-av1", "-still-picture", "1", "-crf", String(crf), "-b:v", "0", "-pix_fmt", "yuv420p", "-f", "avif"]
-        case .heic:
-            args += ["-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-f", "hevc"]
         case .bmp:
             args += ["-f", "image2", "-c:v", "bmp"]
         case .tiff:
@@ -138,10 +168,12 @@ enum ImageIOBridge {
     static func flatten(_ image: CGImage, background: NSColor) -> CGImage {
         let width = image.width
         let height = image.height
-        guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { return image }
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )
+        else { return image }
         context.setFillColor(background.cgColor)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
@@ -158,10 +190,12 @@ enum ImageIOBridge {
     static func scaled(_ image: CGImage, to size: CGSize) -> CGImage {
         let width = max(1, Int(size.width.rounded()))
         let height = max(1, Int(size.height.rounded()))
-        guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return image }
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return image }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage() ?? image
