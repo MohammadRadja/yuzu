@@ -9,6 +9,10 @@
 # Markdown files (keep only the root README)
 *.md
 !/README.md
+!/CHANGELOG.md
+!/Vendor/README.md
+!/Tests/Fixtures/Archives/README.md
+!/Tests/Fixtures/Pages/README.md
 
 # Build and distribution
 dist/
