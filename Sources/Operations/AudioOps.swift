@@ -19,7 +19,8 @@ enum AudioOps {
         if AudioEngine.nativeTargets.contains(format), await MediaInfo.isNativelyReadable(url) {
             let asset = AVURLAsset(url: url)
             if format == .m4a {
-                try await AVExporter.export(asset: asset, to: destination, format: .m4a, preset: AVAssetExportPresetAppleM4A, timeRange: range, progress: progress)
+                try await AVExporter.export(
+                    asset: asset, to: destination, format: .m4a, preset: AVAssetExportPresetAppleM4A, timeRange: range, progress: progress)
             } else {
                 try await AVExporter.exportAudioPCM(asset: asset, to: destination, format: format, timeRange: range, progress: progress)
             }
@@ -58,7 +59,9 @@ enum AudioOps {
         if let file = try? AVAudioFile(forReading: url) {
             let format = file.processingFormat
             let frameCount = AVAudioFrameCount(file.length)
-            if frameCount > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount), (try? file.read(into: buffer)) != nil, let channels = buffer.floatChannelData {
+            if frameCount > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount), (try? file.read(into: buffer)) != nil,
+                let channels = buffer.floatChannelData
+            {
                 let count = Int(buffer.frameLength)
                 let per = max(1, count / buckets)
                 var result: [Float] = []
@@ -91,7 +94,9 @@ enum AudioOps {
     private static func waveformFromFile(_ url: URL, buckets: Int) async -> [Float] {
         guard let file = try? AVAudioFile(forReading: url) else { return [] }
         let frameCount = AVAudioFrameCount(file.length)
-        guard frameCount > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount), (try? file.read(into: buffer)) != nil, let channels = buffer.floatChannelData else { return [] }
+        guard frameCount > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount), (try? file.read(into: buffer)) != nil,
+            let channels = buffer.floatChannelData
+        else { return [] }
         let count = Int(buffer.frameLength)
         let per = max(1, count / buckets)
         return (0..<buckets).map { b in
@@ -116,7 +121,9 @@ enum AudioOps {
         )
     }
 
-    static func normalize(_ url: URL, targetLUFS: Double, range: Double, truePeak: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void) async throws {
+    static func normalize(
+        _ url: URL, targetLUFS: Double, range: Double, truePeak: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void
+    ) async throws {
         if FFmpeg.isAvailable {
             let duration = await FFmpeg.probeDuration(url)
             let filter = "loudnorm=I=\(targetLUFS):LRA=\(range):TP=\(truePeak)"
@@ -147,7 +154,8 @@ enum AudioOps {
         if format == .m4a {
             try await AVExporter.export(asset: asset, to: destination, format: .m4a, preset: AVAssetExportPresetAppleM4A, audioMix: mix, progress: progress)
         } else {
-            try await AVExporter.exportAudioPCM(asset: asset, to: destination, format: AudioEngine.nativeTargets.contains(format) ? format : .wav, audioMix: mix, progress: progress)
+            try await AVExporter.exportAudioPCM(
+                asset: asset, to: destination, format: AudioEngine.nativeTargets.contains(format) ? format : .wav, audioMix: mix, progress: progress)
         }
     }
 
@@ -165,10 +173,13 @@ enum AudioOps {
         }
     }
 
-    static func convertChannels(_ url: URL, mode: ChannelMode, leftGain: Double, rightGain: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void) async throws {
-        guard FFmpeg.isAvailable else {
-            try await applyGain(url, left: Float(leftGain), right: Float(rightGain), to: destination, format: format, progress: progress)
-            return
+    static func convertChannels(
+        _ url: URL, mode: ChannelMode, leftGain: Double, rightGain: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void
+    ) async throws {
+        let capabilities = await RuntimeCapabilities.refresh()
+        guard let input = FileFormat.detect(url), capabilities.supports(tool: .audioChannels, formats: [input]), capabilities.canEncodeMedia(format) else {
+            throw YuzuError.invalidInput(
+                "Channel conversion needs FFmpeg with the pan filter and compatible audio codecs. Check Settings or choose another tool.")
         }
         let pan: String
         switch mode {
@@ -190,14 +201,17 @@ enum AudioOps {
         var end: Double
     }
 
-    static func bleep(_ url: URL, ranges: [BleepRange], frequency: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void) async throws {
+    static func bleep(_ url: URL, ranges: [BleepRange], frequency: Double, to destination: URL, format: FileFormat, progress: @escaping (Double) -> Void)
+        async throws
+    {
         let sorted = ranges.filter { $0.end > $0.start }.sorted { $0.start < $1.start }
         guard !sorted.isEmpty else { throw YuzuError.invalidInput("Add at least one bleep range.") }
         if FFmpeg.isAvailable {
             let duration = await FFmpeg.probeDuration(url)
             let mute = sorted.map { "between(t,\($0.start),\($0.end))" }.joined(separator: "+")
             let toneEnable = sorted.map { "between(t,\($0.start),\($0.end))" }.joined(separator: "+")
-            let filter = "[0:a]volume=enable='\(mute)':volume=0[muted];sine=frequency=\(Int(frequency)):sample_rate=48000,volume=0.5,volume=enable='not(\(toneEnable))':volume=0[tone];[muted][tone]amix=inputs=2:duration=first:dropout_transition=0,volume=2[out]"
+            let filter =
+                "[0:a]volume=enable='\(mute)':volume=0[muted];sine=frequency=\(Int(frequency)):sample_rate=48000,volume=0.5,volume=enable='not(\(toneEnable))':volume=0[tone];[muted][tone]amix=inputs=2:duration=first:dropout_transition=0,volume=2[out]"
             var args = ["-i", url.path, "-filter_complex", filter, "-map", "[out]"]
             args += AudioEngine.codecArguments(for: format) + AudioEngine.containerArguments(for: format) + [destination.path]
             try await FFmpeg.run(args, purpose: "Bleeping audio", duration: duration, progress: progress)
@@ -247,7 +261,10 @@ enum AudioOps {
         }
     }
 
-    static func visualize(_ url: URL, style: VisualizerStyle, orientation: VisualizerOrientation, accent: String, background: String, image: URL?, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    static func visualize(
+        _ url: URL, style: VisualizerStyle, orientation: VisualizerOrientation, accent: String, background: String, image: URL?, to destination: URL,
+        progress: @escaping (Double) -> Void
+    ) async throws {
         let size = orientation.size
         let w = Int(size.width), h = Int(size.height)
         let duration = await FFmpeg.probeDuration(url)
@@ -255,15 +272,20 @@ enum AudioOps {
         let filter: String
         switch style {
         case .waveform:
-            filter = "[0:a]showwaves=s=\(w)x\(h / 3):mode=cline:colors=\(accent):rate=30[w];color=c=\(background):s=\(w)x\(h):r=30[bg];[bg][w]overlay=0:(H-h)/2:shortest=1,format=yuv420p[v]"
+            filter =
+                "[0:a]showwaves=s=\(w)x\(h / 3):mode=cline:colors=\(accent):rate=30[w];color=c=\(background):s=\(w)x\(h):r=30[bg];[bg][w]overlay=0:(H-h)/2:shortest=1,format=yuv420p[v]"
         case .bars:
-            filter = "[0:a]showfreqs=s=\(w)x\(h / 2):mode=bar:colors=\(accent):fscale=log:ascale=sqrt:win_size=2048:rate=30[w];color=c=\(background):s=\(w)x\(h):r=30[bg];[bg][w]overlay=0:(H-h)/2:shortest=1,format=yuv420p[v]"
+            filter =
+                "[0:a]showfreqs=s=\(w)x\(h / 2):mode=bar:colors=\(accent):fscale=log:ascale=sqrt:win_size=2048:rate=30[w];color=c=\(background):s=\(w)x\(h):r=30[bg];[bg][w]overlay=0:(H-h)/2:shortest=1,format=yuv420p[v]"
         case .stillImage:
             guard let image else { throw YuzuError.invalidInput("Choose an image for the still-image visualizer.") }
             args += ["-loop", "1", "-framerate", "30", "-i", image.path]
             filter = "[1:v]scale=\(w):\(h):force_original_aspect_ratio=decrease,pad=\(w):\(h):(ow-iw)/2:(oh-ih)/2:color=\(background),format=yuv420p[v]"
         }
-        args += ["-filter_complex", filter, "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", destination.path]
+        args += [
+            "-filter_complex", filter, "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-movflags", "+faststart", destination.path,
+        ]
         try await FFmpeg.run(args, purpose: "Creating visualizer", duration: duration, progress: progress)
     }
 }

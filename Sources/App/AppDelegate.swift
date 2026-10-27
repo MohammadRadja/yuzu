@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         AppSettings.shared.applyAppearance()
         installStatusItem()
+        Task { _ = await RuntimeCapabilities.refresh() }
         if ScreenshotDriver.isEnabled {
             ScreenshotDriver.run(radial: radial)
             return

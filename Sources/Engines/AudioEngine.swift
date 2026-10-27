@@ -12,7 +12,8 @@ struct AudioEngine: ConversionEngine {
         if Self.nativeTargets.contains(request.target), await MediaInfo.isNativelyReadable(request.source) {
             let asset = AVURLAsset(url: request.source)
             if request.target == .m4a {
-                try await AVExporter.export(asset: asset, to: request.destination, format: .m4a, preset: AVAssetExportPresetAppleM4A, progress: request.progress)
+                try await AVExporter.export(
+                    asset: asset, to: request.destination, format: .m4a, preset: AVAssetExportPresetAppleM4A, progress: request.progress)
             } else {
                 try await AVExporter.exportAudioPCM(asset: asset, to: request.destination, format: request.target, progress: request.progress)
             }
@@ -49,7 +50,14 @@ struct AudioEngine: ConversionEngine {
         }
     }
 
-    static func ffmpegConvert(source: URL, destination: URL, target: FileFormat, extraFilters: [String] = [], bitrate: Int? = nil, progress: @escaping (Double) -> Void) async throws {
+    static func ffmpegConvert(
+        source: URL, destination: URL, target: FileFormat, extraFilters: [String] = [], bitrate: Int? = nil, progress: @escaping (Double) -> Void
+    ) async throws {
+        let capabilities = await RuntimeCapabilities.refresh()
+        guard capabilities.canEncodeMedia(target) else {
+            throw YuzuError.invalidInput(
+                "The selected FFmpeg does not provide the encoder and container for \(target.displayName). Check Settings or choose another format.")
+        }
         let duration = await FFmpeg.probeDuration(source)
         var args = ["-i", source.path, "-vn", "-map_metadata", "0"]
         if !extraFilters.isEmpty { args += ["-af", extraFilters.joined(separator: ",")] }

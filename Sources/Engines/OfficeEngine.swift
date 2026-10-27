@@ -3,7 +3,8 @@ import Foundation
 /// An optional local backend for formats that need a full office layout engine.
 struct OfficeEngine: ConversionEngine {
     static var executable: String? {
-        Shell.which(
+        guard !ValidationRuntime.nativeOnly else { return nil }
+        return Shell.which(
             "soffice",
             extra: [
                 "/Applications/LibreOffice.app/Contents/MacOS/soffice",

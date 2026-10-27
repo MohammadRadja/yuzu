@@ -40,6 +40,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var model: SettingsTabModel
     @State private var ffmpegHealth: FFmpeg.Health = .missing
+    @State private var capabilities = RuntimeCapabilities.snapshot
 
     static let width: CGFloat = 520
     static let height: CGFloat = 540
@@ -60,7 +61,10 @@ struct SettingsView: View {
         .animation(.easeInOut(duration: 0.18), value: model.tab)
         .frame(width: Self.width, height: Self.height)
         .tint(Theme.accent)
-        .task(id: settings.ffmpegPath) { ffmpegHealth = await FFmpeg.checkHealth() }
+        .task(id: settings.ffmpegPath) {
+            ffmpegHealth = await FFmpeg.checkHealth()
+            capabilities = await RuntimeCapabilities.refresh()
+        }
     }
 
     @ViewBuilder private var general: some View {
@@ -139,7 +143,7 @@ struct SettingsView: View {
         }
         Section {
             HStack {
-                TextField("Auto-detect (Homebrew, MacPorts, /usr/local/bin)", text: $settings.ffmpegPath)
+                TextField("Auto-detect or choose a local executable", text: $settings.ffmpegPath)
                     .textFieldStyle(.roundedBorder)
                 Button("Choose…") { chooseFFmpeg() }
             }
@@ -150,11 +154,22 @@ struct SettingsView: View {
                     .font(.caption)
                     .textSelection(.enabled)
             }
+            Text(
+                capabilities.bundledWebPAvailable
+                    ? "WebP encoding available · bundled libwebp"
+                    : (capabilities.canEncodeImage(.webp)
+                        ? "WebP encoding available · local backend" : "WebP encoder unavailable. Reinstall Yuzu or choose another format.")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let failure = capabilities.failure {
+                Text(failure).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
         } header: {
             Text("FFmpeg (optional)")
         } footer: {
             Text(
-                "Yuzu uses Apple frameworks for most work. FFmpeg fills the gaps: MP3, FLAC, OGG, Opus, WMA, MKV, WebM, AVI, WMV, GIF and AVIF/WebP encoding on older systems."
+                "Yuzu uses Apple frameworks first. Optional formats appear only when the selected backend reports the required encoders. WebP can also use a local cwebp executable."
             )
         }
     }

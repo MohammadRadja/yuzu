@@ -2,12 +2,14 @@ import Foundation
 
 enum FFmpeg {
     static var path: String? {
+        guard !ValidationRuntime.nativeOnly else { return nil }
         let configured = AppSettings.shared.ffmpegPath.trimmingCharacters(in: .whitespaces)
-        if !configured.isEmpty, FileManager.default.isExecutableFile(atPath: configured) { return configured }
+        if !configured.isEmpty { return FileManager.default.isExecutableFile(atPath: configured) ? configured : nil }
         return Shell.which("ffmpeg")
     }
 
     static var probePath: String? {
+        guard !ValidationRuntime.nativeOnly else { return nil }
         if let ffmpeg = path {
             let sibling = (ffmpeg as NSString).deletingLastPathComponent + "/ffprobe"
             if FileManager.default.isExecutableFile(atPath: sibling) { return sibling }
@@ -24,6 +26,10 @@ enum FFmpeg {
     }
 
     static func checkHealth() async -> Health {
+        let configured = AppSettings.shared.ffmpegPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configured.isEmpty && !FileManager.default.isExecutableFile(atPath: configured) {
+            return .broken(path: configured, reason: "Choose an executable FFmpeg file or clear the path to auto-detect.")
+        }
         guard let ffmpeg = path else { return .missing }
         do {
             let result = try await Shell.run(ffmpeg, ["-hide_banner", "-version"])
@@ -31,7 +37,8 @@ enum FFmpeg {
             guard result.succeeded, firstLine.hasPrefix("ffmpeg version") else {
                 return .broken(path: ffmpeg, reason: summarize(result.stderr.isEmpty ? result.stdout : result.stderr))
             }
-            let version = firstLine.replacingOccurrences(of: "ffmpeg version ", with: "")
+            let version =
+                firstLine.replacingOccurrences(of: "ffmpeg version ", with: "")
                 .split(separator: " ").first.map(String.init) ?? ""
             return .ready(path: ffmpeg, version: version)
         } catch {
@@ -43,7 +50,7 @@ enum FFmpeg {
         let lines = output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if let dyld = lines.first(where: { $0.contains("Library not loaded") }) {
             let library = dyld.components(separatedBy: "Library not loaded: ").last.map { ($0 as NSString).lastPathComponent } ?? ""
-            return "missing library \(library). Reinstall ffmpeg and its dependencies (for example `wax reinstall ffmpeg`)."
+            return "missing library \(library). Choose a working local FFmpeg build in Settings."
         }
         return lines.last(where: { !$0.hasPrefix("Referenced from") && !$0.hasPrefix("Reason:") }) ?? output
     }
@@ -60,13 +67,16 @@ enum FFmpeg {
         } else {
             result = try await Shell.run(ffmpeg, args)
         }
+        try Task.checkCancellation()
         guard result.succeeded else {
             throw YuzuError.toolFailed("ffmpeg", summarize(result.stderr.isEmpty ? result.stdout : result.stderr))
         }
         return result
     }
 
-    private static func runStreaming(_ executable: String, _ arguments: [String], duration: Double, progress: @escaping (Double) -> Void) async throws -> ShellResult {
+    private static func runStreaming(_ executable: String, _ arguments: [String], duration: Double, progress: @escaping (Double) -> Void) async throws
+        -> ShellResult
+    {
         let box = ProcessBox()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -108,8 +118,10 @@ enum FFmpeg {
                     continuation.resume(returning: output.result(status: proc.terminationStatus))
                 }
                 do {
-                    try process.run()
+                    try box.run()
                 } catch {
+                    try? outPipe.fileHandleForWriting.close()
+                    try? errPipe.fileHandleForWriting.close()
                     continuation.resume(throwing: error)
                 }
             }

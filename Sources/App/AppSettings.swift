@@ -80,7 +80,7 @@ enum ProgressStyle: String, CaseIterable, Identifiable {
 }
 
 final class AppSettings: ObservableObject {
-    static let shared = AppSettings()
+    static let shared = AppSettings(defaults: ValidationRuntime.isolatedDefaults ?? .standard)
 
     private let defaults: UserDefaults
 
