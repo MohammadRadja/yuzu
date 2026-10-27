@@ -114,7 +114,15 @@ func tarFixture(path: String, data: Data = Data("fixture".utf8), type: UInt8 = 4
 #endif
 @MainActor
 struct YuzuTests {
-    static func main() async {
+    static func main() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        ProcessInfo.processInfo.disableAutomaticTermination("Backend integration validation")
+        Task { @MainActor in await runTests() }
+        app.run()
+    }
+
+    static func runTests() async {
         let runner = TestRunner()
 
         if CommandLine.arguments.dropFirst().first == "--qa-shelf-reopen" {
@@ -650,27 +658,6 @@ struct YuzuTests {
                     phase = "scanned PDF text export"
                     try await OCROps.export(pdf, to: txt, progress: { _ in })
                     try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
-                    phase = "forced CPU retry"
-                    var attempts = 0
-                    let cpuText = try OCROps.recognize(image) { handler, request in
-                        attempts += 1
-                        if attempts == 1 { throw YuzuError.encodeFailed("simulated accelerated OCR failure") }
-                        try expect(request.usesCPUOnly, "OCR retry must also keep preprocessing on the CPU")
-                        try handler.perform([request])
-                    }
-                    try expectEqual(attempts, 2, "OCR retries once")
-                    try expect(cpuText.localizedCaseInsensitiveContains("Yuzu"), "CPU retry recognizes actual image text")
-                    phase = "compatible OCR revision"
-                    var compatibilityAttempts = 0
-                    let compatibleText = try OCROps.recognize(image) { handler, request in
-                        compatibilityAttempts += 1
-                        if compatibilityAttempts <= 2 { throw YuzuError.encodeFailed("simulated unavailable current OCR reader") }
-                        try expectEqual(request.revision, 2, "use the supported compatible Vision revision")
-                        try expect(!request.automaticallyDetectsLanguage && request.usesCPUOnly, "compatible request has supported CPU settings")
-                        try handler.perform([request])
-                    }
-                    try expectEqual(compatibilityAttempts, 3, "OCR uses a bounded compatibility retry")
-                    try expect(compatibleText.localizedCaseInsensitiveContains("Yuzu"), "compatible Vision revision recognizes real text")
                 } catch {
                     let detail = error as NSError
                     throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")

@@ -1,7 +1,5 @@
 import AppKit
-import CoreImage
 import CoreText
-import CoreVideo
 import Foundation
 import PDFKit
 import Vision
@@ -182,78 +180,13 @@ enum PDFPasswordOps {
 }
 
 enum OCROps {
-    private static let cpuContext = CIContext(options: [.useSoftwareRenderer: true])
-
-    private static func cpuHandler(for image: CGImage) throws -> VNImageRequestHandler {
-        guard image.width > 0, image.height > 0, image.width <= 8192, image.height <= 8192,
-            image.width * image.height <= 16_000_000
-        else { throw YuzuError.invalidInput("Resize this image to at most 16 megapixels before recognizing text.") }
-        var buffer: CVPixelBuffer?
-        let attributes = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferCGBitmapContextCompatibilityKey: true] as CFDictionary
-        guard CVPixelBufferCreate(kCFAllocatorDefault, image.width, image.height, kCVPixelFormatType_32BGRA, attributes, &buffer) == kCVReturnSuccess,
-            let buffer, CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess
-        else { throw YuzuError.encodeFailed("OCR pixel buffer") }
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-            let context = CGContext(
-                data: CVPixelBufferGetBaseAddress(buffer), width: image.width, height: image.height,
-                bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: space,
-                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { throw YuzuError.encodeFailed("OCR pixel conversion") }
-        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-        context.setFillColor(CGColor(gray: 1, alpha: 1))
-        context.fill(bounds)
-        context.draw(image, in: bounds)
-        return VNImageRequestHandler(cvPixelBuffer: buffer, options: [.ciContext: cpuContext])
-    }
-
-    static func recognize(
-        _ image: CGImage,
-        perform: ((VNImageRequestHandler, VNRecognizeTextRequest) throws -> Void)? = nil
-    ) throws -> String {
+    static func recognize(_ image: CGImage) throws -> String {
         try Task.checkCancellation()
-        func makeRequest(compatible: Bool = false) -> VNRecognizeTextRequest {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = !compatible
-            if compatible { request.revision = VNRecognizeTextRequestRevision2 }
-            return request
-        }
-        let execute = perform ?? { try $0.perform([$1]) }
-        var request = makeRequest()
-        do {
-            try execute(VNImageRequestHandler(cgImage: image), request)
-        } catch {
-            try Task.checkCancellation()
-            func cpuRequest(compatible: Bool = false) -> VNRecognizeTextRequest {
-                let request = makeRequest(compatible: compatible)
-                request.usesCPUOnly = true
-                if let stages = try? request.supportedComputeStageDevices {
-                    for (stage, devices) in stages {
-                        if let cpu = devices.first(where: {
-                            if case .cpu = $0 { return true }; return false
-                        }) {
-                            request.setComputeDevice(cpu, for: stage)
-                        }
-                    }
-                }
-                return request
-            }
-            let fallback = cpuRequest()
-            do {
-                try execute(cpuHandler(for: image), fallback)
-                request = fallback
-            } catch {
-                try Task.checkCancellation()
-                guard VNRecognizeTextRequest.supportedRevisions.contains(VNRecognizeTextRequestRevision2) else { throw error }
-                // The current OCR reader can remain unavailable in a VM even
-                // with software input. Vision retains its earlier OCR revision.
-                let compatible = cpuRequest(compatible: true)
-                try execute(cpuHandler(for: image), compatible)
-                request = compatible
-            }
-        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+        try VNImageRequestHandler(cgImage: image).perform([request])
         try Task.checkCancellation()
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }
