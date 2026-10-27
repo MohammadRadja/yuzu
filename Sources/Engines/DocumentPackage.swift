@@ -62,7 +62,7 @@ struct DocumentArchive {
         }
         for name in names {
             try DocumentPackage.validateEntry(name.hasSuffix("/") ? String(name.dropLast()) : name)
-            guard !name.contains("*"), !name.contains("?"), !name.contains("["), !name.contains("]") else {
+            guard name == "[Content_Types].xml" || !name.contains(where: { "*?[]".contains($0) }) else {
                 throw YuzuError.invalidInput("The document contains an ambiguous package path.")
             }
         }
@@ -72,7 +72,13 @@ struct DocumentArchive {
     func text(_ name: String) async throws -> String {
         try DocumentPackage.validateEntry(name)
         guard entries.contains(name) else { throw YuzuError.invalidInput("The document is missing \(name).") }
-        let result = try await Shell.run("/usr/bin/unzip", ["-p", source.path, name], outputLimit: 8 * 1_024 * 1_024)
+        // unzip interprets its member argument as a glob even without a shell.
+        // OOXML's mandatory [Content_Types].xml must be matched literally.
+        let literal = name.reduce(into: "") { pattern, character in
+            if "*?[]\\".contains(character) { pattern.append("\\") }
+            pattern.append(character)
+        }
+        let result = try await Shell.run("/usr/bin/unzip", ["-p", source.path, literal], outputLimit: 8 * 1_024 * 1_024)
         try Task.checkCancellation()
         guard result.succeeded, !result.outputTruncated else {
             throw YuzuError.invalidInput("A document section is unreadable or exceeds the 8 MB text limit.")
