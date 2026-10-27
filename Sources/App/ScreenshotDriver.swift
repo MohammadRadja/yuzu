@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import CoreText
 import Darwin
+import SwiftUI
 
 private func dumpBacktrace(_ signal: Int32) {
     var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 128)
@@ -83,7 +84,37 @@ enum ScreenshotDriver {
             .mergePDF: [pdf, pdf2],
             .organizePDF: [pdf],
             .splitPDF: [pdf],
+            .watermark: [photo], .ocr: [pdf], .pdfPassword: [pdf],
+            .removeBackground: [photo], .upscaleImage: [photo], .pdfSign: [pdf], .fileComparison: [photo, photo2],
         ]
+
+        if ProcessInfo.processInfo.environment["YUZU_ROADMAP_PREVIEWS"] != nil {
+            for tool: ToolID in [.watermark, .ocr, .pdfPassword, .removeBackground, .upscaleImage, .pdfSign, .fileComparison] {
+                guard let files = inputs[tool] else { continue }
+                ToolWindowManager.shared.open(tool, files: files)
+                try await Task.sleep(nanoseconds: 1_200_000_000)
+                for window in ToolWindowManager.shared.openWindows {
+                    try await screencapture(
+                        "roadmap-\(tool.rawValue)",
+                        ["-x", "-o", "-l", "\(window.windowNumber)", directory.appendingPathComponent("roadmap-\(tool.rawValue).png").path])
+                }
+                ToolWindowManager.shared.closeAll()
+            }
+            try await roadmapWindow("Batch Rename", into: directory) { TaskPanel(task: .batchRename, files: [photo, photo2]) }
+            try await roadmapWindow("Smart Organize", into: directory) { TaskPanel(task: .smartOrganize, files: [photo, photo2]) }
+            try await roadmapWindow("Batch Optimize", into: directory) { TaskPanel(task: .batchOptimize, files: [photo, photo2]) }
+            try await roadmapWindow("Workflow", into: directory) { WorkflowPanel(files: [photo, photo2]) }
+            try await roadmapWindow("Duplicate Finder", into: directory) { DuplicateFinderView(files: [photo, photo2]) }
+            try await roadmapWindow("Archive Manager", into: directory) { ArchiveActionView(files: [photo, photo2], creating: true, showAdvanced: true) }
+            let suite = "YuzuScreenshotShelf-\(UUID().uuidString)"
+            if let defaults = UserDefaults(suiteName: suite) {
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let shelf = FileShelfStore(defaults: defaults)
+                try await roadmapWindow("File Shelf", into: directory) { FileShelfView(files: [photo, photo2], shelf: shelf, use: { _, _ in }) }
+            }
+            try? fm.removeItem(at: samples)
+            return
+        }
 
         for mode in [AppearanceMode.light, .dark] {
             NSApp.appearance = mode.appearance
@@ -105,7 +136,8 @@ enum ScreenshotDriver {
             ToolWindowManager.shared.open(.compress, files: files)
             try await Task.sleep(nanoseconds: 2_500_000_000)
             for window in ToolWindowManager.shared.openWindows {
-                try await screencapture("tool-compress-dark", ["-x", "-o", "-l", "\(window.windowNumber)", directory.appendingPathComponent("tool-compress-dark.png").path])
+                try await screencapture(
+                    "tool-compress-dark", ["-x", "-o", "-l", "\(window.windowNumber)", directory.appendingPathComponent("tool-compress-dark.png").path])
             }
             ToolWindowManager.shared.closeAll()
             try await Task.sleep(nanoseconds: 300_000_000)
@@ -152,7 +184,8 @@ enum ScreenshotDriver {
             ToolWindowManager.shared.open(tool, files: files)
             try await Task.sleep(nanoseconds: 2_500_000_000)
             for window in ToolWindowManager.shared.openWindows {
-                try await screencapture("tool-\(tool.rawValue)", ["-x", "-o", "-l", "\(window.windowNumber)", directory.appendingPathComponent("tool-\(tool.rawValue).png").path])
+                try await screencapture(
+                    "tool-\(tool.rawValue)", ["-x", "-o", "-l", "\(window.windowNumber)", directory.appendingPathComponent("tool-\(tool.rawValue).png").path])
             }
             ToolWindowManager.shared.closeAll()
             try await Task.sleep(nanoseconds: 300_000_000)
@@ -163,6 +196,18 @@ enum ScreenshotDriver {
     private static func screencapture(_ arguments: [String]) async throws {
         let result = try await Shell.run("/usr/sbin/screencapture", arguments)
         guard result.succeeded else { throw YuzuError.toolFailed("screencapture", result.stderr) }
+    }
+
+    private static func roadmapWindow<Content: View>(_ title: String, into directory: URL, @ViewBuilder content: () -> Content) async throws {
+        let window = FeatureWindows.shared.show(title, size: NSSize(width: 760, height: 620), content: content)
+        try await Task.sleep(nanoseconds: 700_000_000)
+        try await screencapture(
+            title,
+            [
+                "-x", "-o", "-l", "\(window.windowNumber)",
+                directory.appendingPathComponent("roadmap-\(title.replacingOccurrences(of: " ", with: "-")).png").path,
+            ])
+        window.close()
     }
 
     private static func screencapture(_ label: String, _ arguments: [String]) async throws {
@@ -176,16 +221,23 @@ enum ScreenshotDriver {
 
 enum SampleMedia {
     static func image(width: Int, height: Int, hue: CGFloat) -> CGImage {
-        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let colors = [NSColor(hue: hue, saturation: 0.75, brightness: 0.95, alpha: 1).cgColor, NSColor(hue: hue + 0.12, saturation: 0.6, brightness: 0.4, alpha: 1).cgColor]
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let colors = [
+            NSColor(hue: hue, saturation: 0.75, brightness: 0.95, alpha: 1).cgColor,
+            NSColor(hue: hue + 0.12, saturation: 0.6, brightness: 0.4, alpha: 1).cgColor,
+        ]
         let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors as CFArray, locations: [0, 1])!
         context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: width, y: height), options: [])
         for i in 0..<12 {
             let r = CGFloat(40 + i * 23)
             context.setFillColor(NSColor.white.withAlphaComponent(0.08 + CGFloat(i % 3) * 0.06).cgColor)
-            context.fillEllipse(in: CGRect(x: CGFloat(width) * CGFloat((i * 7) % 10) / 10, y: CGFloat(height) * CGFloat((i * 3) % 10) / 10, width: r, height: r))
+            context.fillEllipse(
+                in: CGRect(x: CGFloat(width) * CGFloat((i * 7) % 10) / 10, y: CGFloat(height) * CGFloat((i * 3) % 10) / 10, width: r, height: r))
         }
-        let text = NSAttributedString(string: "Yuzu", attributes: [.font: NSFont.systemFont(ofSize: CGFloat(width) / 8, weight: .bold), .foregroundColor: NSColor.white])
+        let text = NSAttributedString(
+            string: "Yuzu", attributes: [.font: NSFont.systemFont(ofSize: CGFloat(width) / 8, weight: .bold), .foregroundColor: NSColor.white])
         let line = CTLineCreateWithAttributedString(text)
         let bounds = CTLineGetBoundsWithOptions(line, [])
         context.textPosition = CGPoint(x: (CGFloat(width) - bounds.width) / 2, y: (CGFloat(height) - bounds.height) / 2)
@@ -213,16 +265,20 @@ enum SampleMedia {
     static func writeVideo(to url: URL, seconds: Double, hue: CGFloat) async throws {
         let width = 1280, height = 720, fps: Int32 = 30
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-        ])
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height,
-        ])
+        let input = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: width,
+                AVVideoHeightKey: height,
+            ])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+            ])
         writer.add(input)
         guard writer.startWriting() else { throw writer.error ?? YuzuError.encodeFailed(url.lastPathComponent) }
         writer.startSession(atSourceTime: .zero)
@@ -234,7 +290,10 @@ enum SampleMedia {
             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
             guard let pixelBuffer = buffer else { throw YuzuError.encodeFailed(url.lastPathComponent) }
             CVPixelBufferLockBaseAddress(pixelBuffer, [])
-            let context = CGContext(data: CVPixelBufferGetBaseAddress(pixelBuffer), width: width, height: height, bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer), space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+            let context = CGContext(
+                data: CVPixelBufferGetBaseAddress(pixelBuffer), width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer), space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
             let progress = CGFloat(frame) / CGFloat(max(1, total - 1))
             context.setFillColor(NSColor(hue: hue, saturation: 0.7, brightness: 0.35 + 0.3 * progress, alpha: 1).cgColor)
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
