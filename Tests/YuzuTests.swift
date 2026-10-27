@@ -114,15 +114,7 @@ func tarFixture(path: String, data: Data = Data("fixture".utf8), type: UInt8 = 4
 #endif
 @MainActor
 struct YuzuTests {
-    static func main() {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        ProcessInfo.processInfo.disableAutomaticTermination("Backend integration validation")
-        Task { @MainActor in await runTests() }
-        app.run()
-    }
-
-    static func runTests() async {
+    static func main() async {
         let runner = TestRunner()
 
         if CommandLine.arguments.dropFirst().first == "--qa-shelf-reopen" {
@@ -630,38 +622,6 @@ struct YuzuTests {
                 try expect(PDFDocument(url: unlocked)?.isEncrypted == false, "protection removed")
                 try expect(PDFDocument(url: unlocked)?.string?.contains("Yuzu password fixture") == true, "text preserved")
                 try expectEqual(try Data(contentsOf: source), original)
-            }
-        }
-
-        await runner.testAsync("P2 watermark exports actual image and PDF content and Vision recognizes scanned PDF") {
-            try await withDocumentFixture { directory in
-                var phase = "image watermark"
-                do {
-                    let png = directory.appendingPathComponent("source.png")
-                    let image = SampleMedia.image(width: 640, height: 320, hue: 0.1)
-                    try ImageIOBridge.write(image, to: png, format: .png)
-                    var options = WatermarkOptions()
-                    options.text = "COPY"; options.opacity = 1; options.rotation = 25
-                    let output = directory.appendingPathComponent("watermarked.png")
-                    try await WatermarkOps.export(png, to: output, options: options, progress: { _ in })
-                    try await OutputValidator.validate(output, as: .png)
-                    try expect(try Data(contentsOf: png) != Data(contentsOf: output), "watermark changes pixels")
-                    let pdf = directory.appendingPathComponent("scan.pdf")
-                    try ImageIOBridge.writePDF(images: [image], to: pdf)
-                    let markedPDF = directory.appendingPathComponent("watermarked.pdf")
-                    try await WatermarkOps.export(pdf, to: markedPDF, options: options, progress: { _ in })
-                    try expectEqual(PDFDocument(url: markedPDF)?.pageCount, 1)
-                    phase = "scanned PDF recognition"
-                    let text = try await OCROps.text(pdf, progress: { _ in })
-                    try expect(text.localizedCaseInsensitiveContains("Yuzu"), "Vision recognized actual rendered text: \(text)")
-                    let txt = directory.appendingPathComponent("OCR.txt")
-                    phase = "scanned PDF text export"
-                    try await OCROps.export(pdf, to: txt, progress: { _ in })
-                    try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
-                } catch {
-                    let detail = error as NSError
-                    throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")
-                }
             }
         }
 

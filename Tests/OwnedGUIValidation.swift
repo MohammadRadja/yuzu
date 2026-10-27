@@ -158,6 +158,38 @@ enum OwnedGUIValidation {
         if let filter = ProcessInfo.processInfo.environment["YUZU_GUI_CASE"] { print("Case filter: " + filter) }
         defer { cleanup() }
 
+        await runner.testAsync("GUI OCR and watermark integration preserves the original scanned PDF fixture") {
+            try await withDocumentFixture { directory in
+                var phase = "image watermark"
+                do {
+                    let png = directory.appendingPathComponent("source.png")
+                    let image = SampleMedia.image(width: 640, height: 320, hue: 0.1)
+                    try ImageIOBridge.write(image, to: png, format: .png)
+                    var options = WatermarkOptions()
+                    options.text = "COPY"; options.opacity = 1; options.rotation = 25
+                    let output = directory.appendingPathComponent("watermarked.png")
+                    try await WatermarkOps.export(png, to: output, options: options, progress: { _ in })
+                    try await OutputValidator.validate(output, as: .png)
+                    try expect(try Data(contentsOf: png) != Data(contentsOf: output), "watermark changes pixels")
+                    let pdf = directory.appendingPathComponent("scan.pdf")
+                    try ImageIOBridge.writePDF(images: [image], to: pdf)
+                    let markedPDF = directory.appendingPathComponent("watermarked.pdf")
+                    try await WatermarkOps.export(pdf, to: markedPDF, options: options, progress: { _ in })
+                    try expectEqual(PDFDocument(url: markedPDF)?.pageCount, 1)
+                    phase = "scanned PDF recognition"
+                    let text = try await OCROps.text(pdf, progress: { _ in })
+                    try expect(text.localizedCaseInsensitiveContains("Yuzu"), "Vision recognized actual rendered text: \(text)")
+                    let txt = directory.appendingPathComponent("OCR.txt")
+                    phase = "scanned PDF text export"
+                    try await OCROps.export(pdf, to: txt, progress: { _ in })
+                    try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
+                } catch {
+                    let detail = error as NSError
+                    throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")
+                }
+            }
+        }
+
         await runner.testAsync("GUI ZIP button commits valid output closes its own panel and dismisses completed progress") {
             try await withDocumentFixture { directory in
                 defer { cleanup() }

@@ -42,6 +42,11 @@ jobs:
       - name: Test
         run: brisk test --verbose
 
+      - name: OCR integration in owned AppKit host
+        env:
+          YUZU_GUI_CASE: OCR
+        run: bash scripts/check-gui.sh
+
       - name: Screenshots
         run: |
           mkdir -p screenshots
