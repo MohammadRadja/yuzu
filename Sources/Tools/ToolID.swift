@@ -32,11 +32,20 @@ enum ToolID: String, CaseIterable, Identifiable {
     case mergePDF
     case organizePDF
     case splitPDF
+    case watermark, ocr, pdfPassword
+    case removeBackground, upscaleImage, pdfSign, fileComparison
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .removeBackground: return "Remove Background"
+        case .upscaleImage: return "Upscale Image (Lanczos)"
+        case .pdfSign: return "PDF Visual Signature"
+        case .fileComparison: return "Compare Files"
+        case .watermark: return "Watermark"
+        case .ocr: return "Recognize text (OCR)"
+        case .pdfPassword: return "PDF Password"
         case .compress: return "Compress"
         case .editMetadata: return "Edit metadata"
         case .editImage: return "Edit photo"
@@ -67,6 +76,13 @@ enum ToolID: String, CaseIterable, Identifiable {
 
     var progressTitle: String {
         switch self {
+        case .removeBackground: return "Removing background"
+        case .upscaleImage: return "Upscaling image"
+        case .pdfSign: return "Adding visual signature"
+        case .fileComparison: return "Comparing files"
+        case .watermark: return "Adding watermark"
+        case .ocr: return "Recognizing text"
+        case .pdfPassword: return "Changing PDF protection"
         case .compress: return "Compressing"
         case .editMetadata: return "Editing metadata"
         case .editImage: return "Editing photo"
@@ -93,6 +109,13 @@ enum ToolID: String, CaseIterable, Identifiable {
 
     var radialLabel: String {
         switch self {
+        case .removeBackground: return "REMOVE BG"
+        case .upscaleImage: return "UPSCALE"
+        case .pdfSign: return "SIGN PDF"
+        case .fileComparison: return "COMPARE"
+        case .watermark: return "WATERMARK"
+        case .ocr: return "OCR"
+        case .pdfPassword: return "PASSWORD"
         case .compress: return "COMPRESS"
         case .editMetadata: return "METADATA"
         case .editImage: return "EDIT"
@@ -119,6 +142,13 @@ enum ToolID: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .removeBackground: return "person.crop.rectangle"
+        case .upscaleImage: return "arrow.up.left.and.arrow.down.right"
+        case .pdfSign: return "signature"
+        case .fileComparison: return "doc.text.magnifyingglass"
+        case .watermark: return "text.badge.plus"
+        case .ocr: return "text.viewfinder"
+        case .pdfPassword: return "lock.doc"
         case .compress: return "arrow.down.right.and.arrow.up.left"
         case .editMetadata: return "tag"
         case .editImage: return "slider.horizontal.3"
@@ -147,6 +177,11 @@ enum ToolID: String, CaseIterable, Identifiable {
 
     var categories: Set<FormatCategory> {
         switch self {
+        case .removeBackground, .upscaleImage: return [.image]
+        case .pdfSign: return [.document]
+        case .fileComparison: return Set(FormatCategory.allCases)
+        case .watermark, .ocr: return [.image, .document]
+        case .pdfPassword: return [.document]
         case .compress, .editMetadata:
             return [.image, .video, .audio, .document]
         case .editImage, .frameImage, .cropImage, .redactImage, .resizeImage, .rotateImage, .createPDF, .createCollage:
@@ -170,11 +205,12 @@ enum ToolID: String, CaseIterable, Identifiable {
 
     func applies(to formats: [FileFormat]) -> Bool {
         guard !formats.isEmpty else { return false }
+        if self == .fileComparison { return formats.count == 2 }
         let categories = Set(formats.map(\.category))
         guard categories.count == 1, let category = categories.first, self.categories.contains(category) else { return false }
         if category == .document {
             switch self {
-            case .mergePDF, .organizePDF, .splitPDF, .editMetadata, .compress:
+            case .mergePDF, .organizePDF, .splitPDF, .editMetadata, .compress, .watermark, .ocr, .pdfPassword, .pdfSign:
                 guard formats.allSatisfy({ $0 == .pdf }) else { return false }
             default:
                 return false

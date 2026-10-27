@@ -35,6 +35,7 @@ final class ToolWindowManager: NSObject, NSWindowDelegate {
         let session = ToolSession(tool: tool, files: files)
         let root = ToolRootView(session: session)
             .environmentObject(AppSettings.shared)
+            .defaultAppStorage(ValidationRuntime.isolatedDefaults ?? .standard)
         let controller = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: controller)
         window.title = tool.title
@@ -49,8 +50,7 @@ final class ToolWindowManager: NSObject, NSWindowDelegate {
         window.delegate = self
         window.identifier = NSUserInterfaceItemIdentifier(session.id.uuidString)
         windows[session.id] = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        ValidationRuntime.present(window, activate: true)
     }
 
     func close(_ session: ToolSession) {
@@ -147,6 +147,8 @@ struct ToolRootView: View {
             case .mergePDF: MergePDFToolView(session: session)
             case .organizePDF: OrganizePDFToolView(session: session)
             case .splitPDF: SplitPDFToolView(session: session)
+            case .watermark, .ocr, .pdfPassword: ProductivityToolView(session: session)
+            case .removeBackground, .upscaleImage, .pdfSign, .fileComparison: AdvancedToolView(session: session)
             }
         }
         .frame(minWidth: 560, minHeight: 360)
@@ -182,8 +184,10 @@ struct WindowChrome<Content: View>: View {
                 .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { ToolWindowManager.shared.close(session) }
+                    .accessibilityIdentifier("tool.cancel")
                     .keyboardShortcut(.cancelAction)
                 Button(saveTitle) { onSave() }
+                    .accessibilityIdentifier("tool.save")
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!saveEnabled)
@@ -315,7 +319,7 @@ struct LabeledSlider: View {
                 Spacer()
                 Text(format(value)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Slider(value: $value, in: range)
+            Slider(value: $value, in: range).accessibilityLabel(title)
         }
     }
 }
@@ -330,6 +334,7 @@ struct NumberField: View {
             Text(title).font(.callout)
             Spacer()
             TextField("", value: $value, format: .number)
+                .accessibilityLabel(title)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 80)
                 .multilineTextAlignment(.trailing)

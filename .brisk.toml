@@ -23,6 +23,8 @@ frameworks = [
   "Quartz",
   "UniformTypeIdentifiers",
   "ServiceManagement",
+  "Vision",
+  "CryptoKit",
 ]
 swift_flags = ["-swift-version", "5"]
 
