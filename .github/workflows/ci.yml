@@ -7,6 +7,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  ocr-diagnostics:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe OCR in fresh signed processes
+        run: bash scripts/diagnose-ocr.sh 2>&1 | tee ocr-diagnostics-fresh.txt
+      - name: Collect Vision system diagnostics
+        if: always()
+        run: /usr/bin/log show --last 15m --style compact --predicate 'process == "OCRDiagnostics" OR subsystem CONTAINS[c] "TextRecognition" OR subsystem CONTAINS[c] "Vision"' > ocr-system-log.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ocr-diagnostics-fresh-xcode-27
+          path: |
+            ocr-diagnostics-fresh.txt
+            ocr-system-log.txt
+          if-no-files-found: warn
+
   macos:
     strategy:
       fail-fast: false
@@ -46,6 +65,22 @@ jobs:
         env:
           YUZU_GUI_CASE: OCR
         run: bash scripts/check-gui.sh
+
+      - name: Diagnose native OCR failure
+        if: failure()
+        run: |
+          bash scripts/diagnose-ocr.sh 2>&1 | tee ocr-diagnostics.txt
+          /usr/bin/log show --last 3m --style compact --predicate 'process == "OCRDiagnostics" OR subsystem CONTAINS[c] "TextRecognition" OR subsystem CONTAINS[c] "Vision"' > ocr-system-log.txt 2>&1 || true
+
+      - name: Upload OCR diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-diagnostics-${{ matrix.runner }}
+          path: |
+            ocr-diagnostics.txt
+            ocr-system-log.txt
+          if-no-files-found: warn
 
       - name: Screenshots
         run: |
