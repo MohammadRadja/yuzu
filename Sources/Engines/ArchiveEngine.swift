@@ -14,49 +14,15 @@ struct ArchiveEngine: ConversionEngine {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
 
-        try await extract(request.source, format: request.sourceFormat, into: staging)
+        let contents = staging.appendingPathComponent("contents")
+        try await extract(request.source, format: request.sourceFormat, into: contents)
         request.progress(0.5)
-        try await pack(staging, as: request.target, to: request.destination)
+        try await pack(contents, as: request.target, to: request.destination)
         request.progress(1)
     }
 
     func extract(_ archive: URL, format: FileFormat, into directory: URL) async throws {
-        switch format {
-        case .zip:
-            try await ZipTool.unzip(archive, into: directory)
-        case .tar:
-            let result = try await Shell.run("/usr/bin/tar", ["-xf", archive.path, "-C", directory.path])
-            guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
-        case .gz:
-            let name = archive.lastPathComponent.lowercased()
-            if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") {
-                let result = try await Shell.run("/usr/bin/tar", ["-xzf", archive.path, "-C", directory.path])
-                guard result.succeeded else { throw YuzuError.toolFailed("tar", result.stderr) }
-            } else {
-                let output = directory.appendingPathComponent(archive.deletingPathExtension().lastPathComponent)
-                let result = try await Shell.run("/bin/sh", ["-c", "/usr/bin/gunzip -c \"$0\" > \"$1\"", archive.path, output.path])
-                guard result.succeeded else { throw YuzuError.toolFailed("gunzip", result.stderr) }
-            }
-        case .rar:
-            let candidates = ["unar", "unrar", "bsdtar"]
-            for tool in candidates {
-                guard let path = Shell.which(tool) else { continue }
-                let args: [String]
-                switch tool {
-                case "unar": args = ["-q", "-o", directory.path, archive.path]
-                case "unrar": args = ["x", "-y", "-idq", archive.path, directory.path + "/"]
-                default: args = ["-xf", archive.path, "-C", directory.path]
-                }
-                let result = try await Shell.run(path, args)
-                if result.succeeded { return }
-            }
-            let bsdtar = try await Shell.run("/usr/bin/tar", ["-xf", archive.path, "-C", directory.path])
-            guard bsdtar.succeeded else {
-                throw YuzuError.toolFailed("rar", "Install `unar` (`wax install unar`) to extract RAR archives.")
-            }
-        default:
-            throw YuzuError.unsupportedConversion(format, .zip)
-        }
+        try await FileOperations.extract(archive, to: directory, progress: { _ in })
     }
 
     func pack(_ directory: URL, as format: FileFormat, to destination: URL) async throws {
