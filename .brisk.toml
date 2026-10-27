@@ -1,6 +1,6 @@
 [package]
 name = "Yuzu"
-version = "1.0.0"
+version = "1.1.0"
 
 [app]
 bundle_id = "com.radja.yuzu"
@@ -33,6 +33,7 @@ architectures = ["arm64"]
 platform = "macos"
 
 [app.info]
+CFBundleVersion = "2"
 LSUIElement = true
 LSApplicationCategoryType = "public.app-category.utilities"
 NSHumanReadableCopyright = "MIT License"
