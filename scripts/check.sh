@@ -25,6 +25,9 @@ else
   skip "swiftlint not installed (wax install swiftlint)"
 fi
 
+step "bundled WebP encoder"
+bash scripts/prepare-native.sh
+
 step "type-check / build"
 brisk build
 

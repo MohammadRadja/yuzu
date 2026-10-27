@@ -17,6 +17,12 @@ expected_version="$(awk '/^version = / { gsub(/"/, "", $3); print $3; exit }' .b
   echo "Unexpected bundle identifier." >&2; exit 1;
 }
 [[ -x "$release_app/Contents/MacOS/Yuzu" ]] || { echo "Missing executable." >&2; exit 1; }
+[[ -f "$release_app/Contents/Resources/libyuzuwebp.dylib" ]] || { echo "Missing bundled WebP encoder. Run bash scripts/prepare-native.sh and rebuild." >&2; exit 1; }
+[[ "$(lipo -archs "$release_app/Contents/Resources/libyuzuwebp.dylib")" == arm64 ]] || { echo "Expected arm64 WebP encoder." >&2; exit 1; }
+codesign --verify --strict "$release_app/Contents/Resources/libyuzuwebp.dylib"
+for notice in libwebp-COPYING.txt libwebp-PATENTS.txt; do
+  cmp "Resources/$notice" "$release_app/Contents/Resources/$notice"
+done
 [[ "$(lipo -archs "$release_app/Contents/MacOS/Yuzu")" == arm64 ]] || {
   echo "Expected an arm64 release executable." >&2; exit 1;
 }
@@ -70,14 +76,33 @@ hdiutil detach "$staging_root/mount"
 mounted=0
 trap - EXIT
 
-installer="$PWD/dist/Yuzu-$version.dmg"
-if [[ -e "$installer" ]]; then
-  backup_dir="$(mktemp -d "$PWD/dist/installer-backup.XXXXXX")"
-  cp -p "$installer" "$backup_dir/"
-  cmp "$installer" "$backup_dir/$(basename "$installer")"
-  echo "Previous installer preserved: $backup_dir"
-fi
-mv "$candidate" "$installer"
-shasum -a 256 "$installer"
-echo "Installer: $installer"
+# Distribute exactly the same signed, icon-complete app in both containers.
+archive_name="Yuzu-$version-arm64.zip"
+ditto -c -k --sequesterRsrc --keepParent "$packaged_app" "$staging_root/$archive_name"
+mkdir "$staging_root/zip-check"
+ditto -x -k "$staging_root/$archive_name" "$staging_root/zip-check"
+diff -qr "$packaged_app" "$staging_root/zip-check/Yuzu.app"
+codesign --verify --deep --strict "$staging_root/zip-check/Yuzu.app"
+
+checksum_name="Yuzu-$version-SHA256SUMS.txt"
+(
+  cd "$staging_root"
+  shasum -a 256 "Yuzu-$version.dmg" "$archive_name" > "$checksum_name"
+)
+for artifact in "Yuzu-$version.dmg" "$archive_name" "$checksum_name"; do
+  if [[ -e "$PWD/dist/$artifact" ]]; then
+    backup_dir="$(mktemp -d "$PWD/dist/installer-backup.XXXXXX")"
+    cp -p "$PWD/dist/$artifact" "$backup_dir/"
+    cmp "$PWD/dist/$artifact" "$backup_dir/$artifact"
+    echo "Previous artifact preserved: $backup_dir/$artifact"
+  fi
+  mv "$staging_root/$artifact" "$PWD/dist/$artifact"
+done
+(
+  cd dist
+  shasum -a 256 -c "$checksum_name"
+)
+echo "Installer: $PWD/dist/Yuzu-$version.dmg"
+echo "Application ZIP: $PWD/dist/$archive_name"
+echo "Checksums: $PWD/dist/$checksum_name"
 echo "Packaged release app and staging retained: $staging_root"

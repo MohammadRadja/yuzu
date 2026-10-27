@@ -35,7 +35,9 @@ jobs:
           brisk --version || true
 
       - name: Build
-        run: brisk build --verbose
+        run: |
+          bash scripts/prepare-native.sh
+          brisk build --verbose
 
       - name: Test
         run: brisk test --verbose
@@ -62,8 +64,12 @@ jobs:
       - name: Archive
         run: brisk archive --release
 
-      - name: Upload app
+      - name: Package verified release artifacts
+        run: bash scripts/package-dmg.sh
+
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Yuzu.app-${{ matrix.runner }}
-          path: .brisk/Archives/Yuzu.zip
+          name: Yuzu-release-${{ matrix.runner }}
+          path: dist/Yuzu-*
+          if-no-files-found: error
