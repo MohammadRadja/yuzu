@@ -2,10 +2,7 @@
 
 **Your files. Your flow.**
 
-Version **1.1.0 is a release candidate**. The latest published installer is
-**v1.0.0**. Features below describe the current source tree; public v1.1.0
-publication is held while mandatory OCR integration fails on the Xcode 27 CI
-host. The same OCR cases pass on the local macOS 27 host and macOS 26 CI.
+Version **1.1.0** adds compatible file utilities, conversion routes, and native OCR recovery. Download the Apple silicon installer from [Yuzu v1.1.0](https://github.com/MohammadRadja/yuzu/releases/tag/v1.1.0).
 
 Yuzu is free and open-source software for Apple silicon Macs. [Source code](https://github.com/MohammadRadja/yuzu) · [Download from GitHub Releases](https://github.com/MohammadRadja/yuzu/releases).
 
@@ -22,12 +19,12 @@ Yuzu is a separately maintained application derived from the open-source Satsuma
 
 ## Install and launch
 
-1. Open [GitHub Releases](https://github.com/MohammadRadja/yuzu/releases) and download `Yuzu-1.0.0.dmg` from the published v1.0.0 release.
+1. Open [GitHub Releases](https://github.com/MohammadRadja/yuzu/releases) and download `Yuzu-1.1.0.dmg` from the v1.1.0 release.
 2. Open the DMG and drag **Yuzu.app** onto **Applications**.
 3. Eject the disk image and launch Yuzu from Applications.
 4. Find Yuzu in the menu bar, open Settings as needed, and drag a test file while holding a mode modifier.
 
-The v1.0.0 distribution uses **ad-hoc code signing**, has no Apple Developer ID signature, and is **not notarized by Apple**. macOS may block the first launch. Review the source and download origin before deciding whether to allow the app in **System Settings > Privacy & Security**. If macOS offers no supported option to open it, stop and report the warning. Do not disable Gatekeeper or remove quarantine attributes.
+The v1.1.0 distribution uses **ad-hoc code signing**, has no Apple Developer ID signature, and is **not notarized by Apple**. macOS may block the first launch. Review the source and download origin before deciding whether to allow the app in **System Settings > Privacy & Security**. If macOS offers no supported option to open it, stop and report the warning. Do not disable Gatekeeper or remove quarantine attributes.
 
 Yuzu uses global mouse monitors to detect drags. If macOS requests **Accessibility** or **Input Monitoring** access, review the request and grant access to Yuzu in System Settings > Privacy & Security only when needed. Permission behavior still requires manual testing on supported macOS versions; the app does not currently provide a dedicated permission-request flow.
 
@@ -136,7 +133,9 @@ scripts/check.sh --fix  # apply swift-format fixes first
 
 ## Verification status
 
-The v1.1.0 candidate passed 97/97 primary tests, 36/36 process-owned GUI integration cases, 2/2 native-only tests, and 1/1 private-volume bookmark lifecycle test on arm64 macOS 27.0.1 / Xcode 27.1. Strict Xcode Swift Format lint passed for all 59 changed/new Swift files. SwiftLint is unavailable. The watermark/scanned-PDF OCR scenario runs in the owned AppKit host; all its assertions are retained, moving one case from the primary suite to the GUI suite. GUI integration uses real file operations and production controls, with fixture-supplied file-picker responses; it does not certify fresh-account Gatekeeper/privacy prompts, OS chooser navigation, Desktop-origin drags, or every accessibility/media/archive variant. See [CHANGELOG.md](CHANGELOG.md) for release changes and limits. Public v1.1.0 publication remains blocked by the [mandatory Xcode 27 OCR gate](https://github.com/MohammadRadja/yuzu/actions/runs/40448015219), which passed 95/95 primary cases; 0/3 OCR cases passed (all three failed). No OCR assertion is skipped.
+Version 1.1.0 passed 97/97 primary tests, 37/37 process-owned GUI integration cases, 2/2 native-only tests, and 1/1 private-volume bookmark lifecycle test on arm64 macOS 27.0.1 / Xcode 27.1. Strict Xcode Swift Format lint passed for the 59 changed/new application and test Swift files plus the OCR diagnostic script. SwiftLint is unavailable. The watermark/scanned-PDF OCR scenario runs in the owned AppKit host with every original assertion retained; a new regression exercises the native fast retry and cancellation/error propagation. The mandatory OCR subset passes 4/4 locally and on both CI runners; the primary CI suite passes 95/95 (two optional LibreOffice cases require that backend). See the [validated OCR/build workflow](https://github.com/MohammadRadja/yuzu/actions/runs/40543547759) and [CHANGELOG.md](CHANGELOG.md).
+
+GUI integration uses real file operations and production controls, with fixture-supplied file-picker responses. The packaged Release app was copied from its DMG and launched with isolated preferences, producing 14 owned-window previews. These checks do not certify fresh-account Gatekeeper/privacy prompts, OS chooser navigation, Desktop-origin drags, or every accessibility/media/archive variant. When the accurate Vision reader is unavailable, OCR retries a bounded native fast pass for Latin text; review exported text. No OCR assertion is skipped.
 
 The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on the `macos-26` and `xcode-27` (macOS 27 / Xcode 27 SDK, public preview) runners: `brisk build`, `brisk test` (conversion matrix, naming, subtitle, PDF-range, tool-applicability, compression and timecode logic in `Tests/YuzuTests.swift`), then launches the app with `YUZU_SCREENSHOTS=<dir>` so `Sources/App/ScreenshotDriver.swift` generates sample media, opens the radial menu and the registered tool windows, and captures them with `screencapture`. Screenshots and verified release DMG/ZIP/checksums are uploaded as workflow artifacts. Actual Finder Shift-drag cannot be exercised on a headless runner and still need a manual check on a Mac.
 

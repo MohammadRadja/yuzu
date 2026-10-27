@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0] - Unreleased
+## [1.1.0] - 2026-10-27
 
 ### New Features
 
@@ -22,7 +22,6 @@
 ### Bug Fixes
 
 - Recover from the macOS 27 accurate OCR reader failure using a bounded native fast-recognition retry over grayscale input. Accurate recognition remains the primary path; cancellation and unrelated errors propagate unchanged.
-
 - Fix WebP encoding availability and reject raw HEVC output incorrectly presented as HEIC.
 - Preserve transparent PNG format during compression, including target-size requests.
 - Clear stale file URLs when copying paths and use native multi-item file clipboard representations.
@@ -39,8 +38,6 @@
 - Source builds require Brisk and Apple's Xcode tools; run `bash scripts/prepare-native.sh` before a clean build. Existing Satsuma attribution and MIT license are preserved.
 
 ### Known Limitations
-
-- Public release is blocked: all three mandatory OCR integration cases fail on the Xcode 27 CI host with `TextRecognition.CRImageReaderError` code 9, despite passing on the local macOS 27 host and macOS 26 CI. The cause is unresolved; no test is skipped.
 
 - Ad-hoc signed only; no Apple Developer ID signature, hardened runtime, notarization, or stapled ticket. First-launch Gatekeeper/privacy behavior requires manual verification; do not disable macOS security controls.
 - Fresh-profile installation, native file-picker navigation, Desktop-origin drags, full VoiceOver/keyboard/appearance coverage, and additional media/archive variants remain manual acceptance work. Process-owned GUI checks do not certify them.
