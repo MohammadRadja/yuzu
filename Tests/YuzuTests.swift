@@ -646,6 +646,19 @@ struct YuzuTests {
                 let txt = directory.appendingPathComponent("OCR.txt")
                 try await OCROps.export(pdf, to: txt, progress: { _ in })
                 try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
+                var attempts = 0
+                let cpuText = try OCROps.recognize(image) { handler, request in
+                    attempts += 1
+                    if attempts == 1 { throw YuzuError.encodeFailed("simulated accelerated OCR failure") }
+                    for stage in try request.supportedComputeStageDevices.keys {
+                        guard case .cpu? = request.computeDevice(for: stage) else {
+                            throw TestFailure(description: "OCR retry must use supported CPU devices")
+                        }
+                    }
+                    try handler.perform([request])
+                }
+                try expectEqual(attempts, 2, "OCR retries once")
+                try expect(cpuText.localizedCaseInsensitiveContains("Yuzu"), "CPU retry recognizes actual image text")
             }
         }
 

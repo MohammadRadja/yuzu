@@ -180,13 +180,40 @@ enum PDFPasswordOps {
 }
 
 enum OCROps {
-    static func recognize(_ image: CGImage) throws -> String {
+    static func recognize(
+        _ image: CGImage,
+        perform: ((VNImageRequestHandler, VNRecognizeTextRequest) throws -> Void)? = nil
+    ) throws -> String {
         try Task.checkCancellation()
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        try VNImageRequestHandler(cgImage: image).perform([request])
+        func makeRequest() -> VNRecognizeTextRequest {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            request.automaticallyDetectsLanguage = true
+            return request
+        }
+        let execute = perform ?? { try $0.perform([$1]) }
+        var request = makeRequest()
+        do {
+            try execute(VNImageRequestHandler(cgImage: image), request)
+        } catch {
+            try Task.checkCancellation()
+            // Some virtualized Macs cannot execute Vision's accelerated path.
+            // Retry once with a fresh request and only supported CPU devices.
+            let fallback = makeRequest()
+            let stages = try fallback.supportedComputeStageDevices
+            guard !stages.isEmpty else { throw error }
+            for (stage, devices) in stages {
+                guard
+                    let cpu = devices.first(where: {
+                        if case .cpu = $0 { return true }; return false
+                    })
+                else { throw error }
+                fallback.setComputeDevice(cpu, for: stage)
+            }
+            try execute(VNImageRequestHandler(cgImage: image), fallback)
+            request = fallback
+        }
         try Task.checkCancellation()
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }

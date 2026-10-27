@@ -21,6 +21,8 @@
 
 ### Bug Fixes
 
+- Retry failed Vision OCR once with supported CPU compute devices when the initial recognition path is unavailable.
+
 - Fix WebP encoding availability and reject raw HEVC output incorrectly presented as HEIC.
 - Preserve transparent PNG format during compression, including target-size requests.
 - Clear stale file URLs when copying paths and use native multi-item file clipboard representations.
