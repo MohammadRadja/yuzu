@@ -56,7 +56,7 @@ struct ProductivityToolView: View {
             } else {
                 Label("Apple Vision · local text recognition", systemImage: "text.viewfinder")
                 FormHint(
-                    "Recognizes images and scanned PDF pages, then exports UTF-8 text. PDF pages are processed one at a time. Layout, tables, and handwriting fidelity vary; review the exported text."
+                    "Recognizes images and scanned PDF pages, then exports UTF-8 text. PDF pages are processed one at a time. If the accurate reader is unavailable, a fast pass recognizes Latin text. Layout, tables, and handwriting fidelity vary; review the exported text."
                 )
             }
             if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }

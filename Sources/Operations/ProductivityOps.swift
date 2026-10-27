@@ -180,13 +180,52 @@ enum PDFPasswordOps {
 }
 
 enum OCROps {
-    static func recognize(_ image: CGImage) throws -> String {
+    private static func grayscale(_ image: CGImage) throws -> CGImage {
+        guard image.width > 0, image.height > 0, image.width <= 8192, image.height <= 8192,
+            image.width * image.height <= 16_000_000
+        else { throw YuzuError.invalidInput("Resize this image to at most 16 megapixels before recognizing text.") }
+        guard
+            let context = CGContext(
+                data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { throw YuzuError.encodeFailed("OCR grayscale image") }
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(bounds)
+        context.draw(image, in: bounds)
+        guard let result = context.makeImage() else { throw YuzuError.encodeFailed("OCR grayscale image") }
+        return result
+    }
+
+    static func recognize(
+        _ image: CGImage,
+        perform: ((CGImage, VNRecognizeTextRequest) throws -> Void)? = nil
+    ) throws -> String {
         try Task.checkCancellation()
-        let request = VNRecognizeTextRequest()
+        let execute = perform ?? { try VNImageRequestHandler(cgImage: $0).perform([$1]) }
+        var request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.automaticallyDetectsLanguage = true
-        try VNImageRequestHandler(cgImage: image).perform([request])
+        do {
+            try execute(image, request)
+        } catch {
+            try Task.checkCancellation()
+            let detail = error as NSError
+            guard detail.domain == "TextRecognition.CRImageReaderError", detail.code == 9 else { throw error }
+            // The accurate reader can be unavailable on virtualized macOS 27.
+            // The native fast reader accepts grayscale without that dependency.
+            let fallback = VNRecognizeTextRequest()
+            fallback.recognitionLevel = .fast
+            fallback.usesLanguageCorrection = false
+            fallback.automaticallyDetectsLanguage = false
+            fallback.recognitionLanguages = ["en-US"]
+            let input = try grayscale(image)
+            try Task.checkCancellation()
+            try execute(input, fallback)
+            request = fallback
+            DiagnosticLog.log("OCR used native fast recognition after accurate image-reader failure")
+        }
         try Task.checkCancellation()
         return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
     }

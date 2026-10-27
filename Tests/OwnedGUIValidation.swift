@@ -3,6 +3,7 @@ import ApplicationServices
 import Foundation
 import PDFKit
 import SwiftUI
+import Vision
 
 /// Acts only on accessibility objects reached from windows in this process.
 /// No global key/mouse events, frontmost-window lookup, or external close action.
@@ -187,6 +188,38 @@ enum OwnedGUIValidation {
                     let detail = error as NSError
                     throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")
                 }
+            }
+        }
+
+        await runner.testAsync("GUI OCR retries the known reader failure with real native fast recognition and preserves cancellation errors") {
+            let image = SampleMedia.image(width: 640, height: 320, hue: 0.1)
+            var attempts = 0
+            let text = try OCROps.recognize(image) { input, request in
+                attempts += 1
+                if attempts == 1 { throw NSError(domain: "TextRecognition.CRImageReaderError", code: 9) }
+                try expectEqual(request.recognitionLevel, .fast)
+                try expectEqual(input.colorSpace?.numberOfComponents, 1)
+                try expectEqual(input.bitsPerComponent, 8)
+                try expect(!request.automaticallyDetectsLanguage && !request.usesLanguageCorrection, "bounded explicit compatibility request")
+                try VNImageRequestHandler(cgImage: input).perform([request])
+            }
+            try expectEqual(attempts, 2, "one compatibility retry")
+            try expect(text.localizedCaseInsensitiveContains("Yuzu"), "native fast reader recognizes actual fixture text")
+            for cancelled in [true, false] {
+                var calls = 0
+                do {
+                    _ = try OCROps.recognize(image) { _, _ in
+                        calls += 1
+                        if cancelled { throw CancellationError() }
+                        throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+                    }
+                    throw TestFailure(description: "OCR swallowed an unrelated failure")
+                } catch is CancellationError {
+                    try expect(cancelled, "cancellation preserved")
+                } catch let error as NSError {
+                    try expect(!cancelled && error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError, "unrelated error preserved")
+                }
+                try expectEqual(calls, 1, "no retry for cancellation or unrelated errors")
             }
         }
 
