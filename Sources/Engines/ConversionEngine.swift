@@ -32,11 +32,8 @@ enum Engines {
     @discardableResult
     static func convert(_ request: ConversionRequest) async throws -> URL {
         try Task.checkCancellation()
-        guard request.source.isFileURL, request.destination.isFileURL,
-            request.source.standardizedFileURL != request.destination.standardizedFileURL
-        else {
-            throw YuzuError.invalidInput("Choose a separate local destination so the original file stays unchanged.")
-        }
+        try OutputTransaction.validateDestination(source: request.source, destination: request.destination, format: request.target)
+        guard FileManager.default.isReadableFile(atPath: request.source.path) else { throw YuzuError.unreadable(request.source) }
         guard ConversionMatrix.targets(for: request.sourceFormat).contains(request.target) else {
             throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
         }
@@ -45,8 +42,8 @@ enum Engines {
             throw YuzuError.unsupportedConversion(request.sourceFormat, request.target)
         }
         DiagnosticLog.log("engine \(type(of: engine)) \(request.sourceFormat.rawValue) -> \(request.target.rawValue) src=\(request.source.path)")
-        let temp = request.destination.deletingLastPathComponent()
-            .appendingPathComponent(".yuzu-\(UUID().uuidString).\(request.destination.pathExtension)")
+        let stagingDirectory = try OutputTransaction.stagingDirectory(for: request.destination)
+        let temp = stagingDirectory.appendingPathComponent("output.\(request.target.fileExtension)")
         let staged = ConversionRequest(
             source: request.source,
             sourceFormat: request.sourceFormat,
@@ -54,10 +51,12 @@ enum Engines {
             destination: temp,
             progress: request.progress
         )
-        defer { try? FileManager.default.removeItem(at: temp) }
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
         do {
             try await engine.convert(staged)
+            try await OutputValidator.validate(temp, as: request.target)
             try Task.checkCancellation()
+            try OutputTransaction.preservePermissions(of: request.source, on: temp)
             DiagnosticLog.log("engine finished, staged=\(temp.lastPathComponent)")
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: temp.path, isDirectory: &isDirectory) {

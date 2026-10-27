@@ -51,7 +51,10 @@ enum MetadataOps {
                 let group = name.replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: "")
                 for (subKey, subValue) in dictionary {
                     let sub = subKey as String
-                    fields.append(MetadataField(id: "\(group).\(sub)", group: group, key: sub, value: describe(subValue), editable: isEditableImageKey(group: group, key: sub), sensitive: sensitiveGroups.contains(group)))
+                    fields.append(
+                        MetadataField(
+                            id: "\(group).\(sub)", group: group, key: sub, value: describe(subValue), editable: isEditableImageKey(group: group, key: sub),
+                            sensitive: sensitiveGroups.contains(group)))
                 }
             } else {
                 fields.append(MetadataField(id: "Image.\(name)", group: "Image", key: name, value: describe(value), editable: false, sensitive: false))
@@ -61,7 +64,10 @@ enum MetadataOps {
     }
 
     private static func isEditableImageKey(group: String, key: String) -> Bool {
-        let editable: Set<String> = ["Artist", "Copyright", "ImageDescription", "Software", "Make", "Model", "UserComment", "DateTimeOriginal", "DateTimeDigitized", "DateTime", "LensModel", "Keywords", "Caption/Abstract", "Byline", "CopyrightNotice", "ObjectName", "City", "Country/PrimaryLocationName"]
+        let editable: Set<String> = [
+            "Artist", "Copyright", "ImageDescription", "Software", "Make", "Model", "UserComment", "DateTimeOriginal", "DateTimeDigitized", "DateTime",
+            "LensModel", "Keywords", "Caption/Abstract", "Byline", "CopyrightNotice", "ObjectName", "City", "Country/PrimaryLocationName",
+        ]
         return editable.contains(key)
     }
 
@@ -69,11 +75,30 @@ enum MetadataOps {
         var fields = fileFields(url)
         let asset = AVURLAsset(url: url)
         let info = await MediaInfo.load(url)
-        if info.duration > 0 { fields.append(MetadataField(id: "media.duration", group: "Media", key: "Duration", value: TimeFormatter.clock(info.duration), editable: false, sensitive: false)) }
-        if info.hasVideo { fields.append(MetadataField(id: "media.size", group: "Media", key: "Dimensions", value: "\(Int(info.naturalSize.width)) × \(Int(info.naturalSize.height))", editable: false, sensitive: false)) }
-        if info.frameRate > 0 { fields.append(MetadataField(id: "media.fps", group: "Media", key: "Frame rate", value: String(format: "%.2f fps", info.frameRate), editable: false, sensitive: false)) }
-        if info.channelCount > 0 { fields.append(MetadataField(id: "media.channels", group: "Media", key: "Channels", value: "\(info.channelCount)", editable: false, sensitive: false)) }
-        if info.sampleRate > 0 { fields.append(MetadataField(id: "media.rate", group: "Media", key: "Sample rate", value: "\(Int(info.sampleRate)) Hz", editable: false, sensitive: false)) }
+        if info.duration > 0 {
+            fields.append(
+                MetadataField(
+                    id: "media.duration", group: "Media", key: "Duration", value: TimeFormatter.clock(info.duration), editable: false, sensitive: false))
+        }
+        if info.hasVideo {
+            fields.append(
+                MetadataField(
+                    id: "media.size", group: "Media", key: "Dimensions", value: "\(Int(info.naturalSize.width)) × \(Int(info.naturalSize.height))",
+                    editable: false, sensitive: false))
+        }
+        if info.frameRate > 0 {
+            fields.append(
+                MetadataField(
+                    id: "media.fps", group: "Media", key: "Frame rate", value: String(format: "%.2f fps", info.frameRate), editable: false, sensitive: false))
+        }
+        if info.channelCount > 0 {
+            fields.append(
+                MetadataField(id: "media.channels", group: "Media", key: "Channels", value: "\(info.channelCount)", editable: false, sensitive: false))
+        }
+        if info.sampleRate > 0 {
+            fields.append(
+                MetadataField(id: "media.rate", group: "Media", key: "Sample rate", value: "\(Int(info.sampleRate)) Hz", editable: false, sensitive: false))
+        }
         let items = (try? await asset.load(.metadata)) ?? []
         let common = (try? await asset.load(.commonMetadata)) ?? []
         for item in common + items {
@@ -83,7 +108,10 @@ enum MetadataOps {
             guard !value.isEmpty else { continue }
             let id = "av.\(item.keySpace?.rawValue ?? "common").\(key)"
             if fields.contains(where: { $0.id == id }) { continue }
-            fields.append(MetadataField(id: id, group: "Tags", key: key.replacingOccurrences(of: "©", with: ""), value: value, editable: item.commonKey != nil, sensitive: key.lowercased().contains("location")))
+            fields.append(
+                MetadataField(
+                    id: id, group: "Tags", key: key.replacingOccurrences(of: "©", with: ""), value: value, editable: item.commonKey != nil,
+                    sensitive: key.lowercased().contains("location")))
         }
         if let ffmpegFields = await readWithFFprobe(url), !ffmpegFields.isEmpty {
             for field in ffmpegFields where !fields.contains(where: { $0.key.lowercased() == field.key.lowercased() && $0.group == field.group }) {
@@ -95,20 +123,27 @@ enum MetadataOps {
 
     private static func readWithFFprobe(_ url: URL) async -> [MetadataField]? {
         guard let probe = FFmpeg.probePath else { return nil }
-        guard let result = try? await Shell.run(probe, ["-v", "error", "-show_entries", "format_tags:stream_tags:chapters", "-of", "json", url.path]), result.succeeded,
-              let data = result.stdout.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard let result = try? await Shell.run(probe, ["-v", "error", "-show_entries", "format_tags:stream_tags:chapters", "-of", "json", url.path]),
+            result.succeeded,
+            let data = result.stdout.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
         var fields: [MetadataField] = []
         if let format = object["format"] as? [String: Any], let tags = format["tags"] as? [String: Any] {
             for (key, value) in tags {
-                fields.append(MetadataField(id: "ff.format.\(key)", group: "Tags", key: key, value: describe(value), editable: true, sensitive: key.lowercased().contains("location")))
+                fields.append(
+                    MetadataField(
+                        id: "ff.format.\(key)", group: "Tags", key: key, value: describe(value), editable: true,
+                        sensitive: key.lowercased().contains("location")))
             }
         }
         if let streams = object["streams"] as? [[String: Any]] {
             for (index, stream) in streams.enumerated() {
                 guard let tags = stream["tags"] as? [String: Any] else { continue }
                 for (key, value) in tags {
-                    fields.append(MetadataField(id: "ff.stream\(index).\(key)", group: "Track \(index + 1)", key: key, value: describe(value), editable: false, sensitive: false))
+                    fields.append(
+                        MetadataField(
+                            id: "ff.stream\(index).\(key)", group: "Track \(index + 1)", key: key, value: describe(value), editable: false, sensitive: false))
                 }
             }
         }
@@ -128,7 +163,10 @@ enum MetadataOps {
         fields.append(MetadataField(id: "pdf.pages", group: "Document", key: "Pages", value: "\(document.pageCount)", editable: false, sensitive: false))
         for (key, value) in document.documentAttributes ?? [:] {
             let name = (key.base as? PDFDocumentAttribute)?.rawValue ?? "\(key)"
-            fields.append(MetadataField(id: "pdf.\(name)", group: "Document", key: name, value: describe(value), editable: true, sensitive: name == "Author" || name == "Creator" || name == "Producer"))
+            fields.append(
+                MetadataField(
+                    id: "pdf.\(name)", group: "Document", key: name, value: describe(value), editable: true,
+                    sensitive: name == "Author" || name == "Creator" || name == "Producer"))
         }
         return fields
     }
@@ -142,7 +180,18 @@ enum MetadataOps {
         return "\(value)"
     }
 
-    static func write(_ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    static func write(_ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL, progress: @escaping (Double) -> Void)
+        async throws
+    {
+        guard let output = FileFormat.detect(destination) else { throw YuzuError.invalidInput("Choose a supported output extension.") }
+        try await OutputTransaction.write(source: url, destination: destination, format: output) { staged in
+            try await writeUnstaged(url, edits: edits, removeAll: removeAll, removeSensitive: removeSensitive, to: staged, progress: progress)
+        }
+    }
+
+    private static func writeUnstaged(
+        _ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL, progress: @escaping (Double) -> Void
+    ) async throws {
         guard let format = FileFormat.detect(url) else { throw YuzuError.unreadable(url) }
         switch format.category {
         case .image:
@@ -158,14 +207,21 @@ enum MetadataOps {
     }
 
     private static func writeImage(_ url: URL, edits: [MetadataField], removeAll: Bool, removeSensitive: Bool, to destination: URL) throws {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let type = CGImageSourceGetType(source) else { throw YuzuError.unreadable(url) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetType(source) != nil else { throw YuzuError.unreadable(url) }
         let count = CGImageSourceGetCount(source)
-        let outputType: CFString = ImageIOBridge.nativeEncoders.contains(type as String) ? type : (UTType.png.identifier as CFString)
-        guard let dest = CGImageDestinationCreateWithURL(destination as CFURL, outputType, count, nil) else { throw YuzuError.encodeFailed(destination.lastPathComponent) }
+        guard let format = FileFormat.detect(destination), let outputType = format.utType,
+            ImageIOBridge.nativeEncoders.contains(outputType.identifier)
+        else { throw YuzuError.invalidInput("No native encoder is available for this output. Choose PNG.") }
+        guard let dest = CGImageDestinationCreateWithURL(destination as CFURL, outputType.identifier as CFString, count, nil) else {
+            throw YuzuError.encodeFailed(destination.lastPathComponent)
+        }
         for index in 0..<count {
             var props = (CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]) ?? [:]
             if removeAll {
-                let keep: Set<CFString> = [kCGImagePropertyOrientation, kCGImagePropertyDPIWidth, kCGImagePropertyDPIHeight, kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight, kCGImagePropertyColorModel, kCGImagePropertyHasAlpha, kCGImagePropertyDepth, kCGImagePropertyProfileName]
+                let keep: Set<CFString> = [
+                    kCGImagePropertyOrientation, kCGImagePropertyDPIWidth, kCGImagePropertyDPIHeight, kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight,
+                    kCGImagePropertyColorModel, kCGImagePropertyHasAlpha, kCGImagePropertyDepth, kCGImagePropertyProfileName,
+                ]
                 props = props.filter { keep.contains($0.key) }
                 props[kCGImagePropertyExifDictionary] = kCFNull
                 props[kCGImagePropertyGPSDictionary] = kCFNull
@@ -179,13 +235,19 @@ enum MetadataOps {
                     props[kCGImagePropertyMakerAppleDictionary] = kCFNull
                     props[kCGImagePropertyExifAuxDictionary] = kCFNull
                     if var exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] {
-                        for key in [kCGImagePropertyExifUserComment, kCGImagePropertyExifSubjectLocation, kCGImagePropertyExifLensModel, kCGImagePropertyExifLensMake, kCGImagePropertyExifBodySerialNumber, kCGImagePropertyExifLensSerialNumber, kCGImagePropertyExifCameraOwnerName] {
+                        for key in [
+                            kCGImagePropertyExifUserComment, kCGImagePropertyExifSubjectLocation, kCGImagePropertyExifLensModel, kCGImagePropertyExifLensMake,
+                            kCGImagePropertyExifBodySerialNumber, kCGImagePropertyExifLensSerialNumber, kCGImagePropertyExifCameraOwnerName,
+                        ] {
                             exif.removeValue(forKey: key)
                         }
                         props[kCGImagePropertyExifDictionary] = exif
                     }
                     if var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
-                        for key in [kCGImagePropertyTIFFMake, kCGImagePropertyTIFFModel, kCGImagePropertyTIFFSoftware, kCGImagePropertyTIFFArtist, kCGImagePropertyTIFFHostComputer] {
+                        for key in [
+                            kCGImagePropertyTIFFMake, kCGImagePropertyTIFFModel, kCGImagePropertyTIFFSoftware, kCGImagePropertyTIFFArtist,
+                            kCGImagePropertyTIFFHostComputer,
+                        ] {
                             tiff.removeValue(forKey: key)
                         }
                         props[kCGImagePropertyTIFFDictionary] = tiff
@@ -222,7 +284,9 @@ enum MetadataOps {
         }
     }
 
-    private static func writeAV(_ url: URL, format: FileFormat, edits: [MetadataField], removeAll: Bool, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    private static func writeAV(
+        _ url: URL, format: FileFormat, edits: [MetadataField], removeAll: Bool, to destination: URL, progress: @escaping (Double) -> Void
+    ) async throws {
         let nativeTarget = VideoEngine.nativeTargets.contains(format) || format == .m4a
         if nativeTarget, await MediaInfo.isNativelyReadable(url) {
             var items: [AVMetadataItem] = []
@@ -237,7 +301,8 @@ enum MetadataOps {
                     items.append(item)
                 }
             }
-            try await AVExporter.export(asset: AVURLAsset(url: url), to: destination, format: format, preset: AVAssetExportPresetPassthrough, metadata: items, progress: progress)
+            try await AVExporter.export(
+                asset: AVURLAsset(url: url), to: destination, format: format, preset: AVAssetExportPresetPassthrough, metadata: items, progress: progress)
             return
         }
         var args = ["-i", url.path, "-map", "0", "-c", "copy"]

@@ -2,11 +2,24 @@ import AVFoundation
 import Foundation
 
 enum Compressor {
-    static func compress(_ url: URL, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    static func compress(
+        _ url: URL, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void
+    ) async throws {
+        if let targetBytes, targetBytes <= 0 { throw YuzuError.invalidInput("Choose a target size greater than zero.") }
+        let output = outputFormat(for: url)
+        try await OutputTransaction.write(source: url, destination: destination, format: output) { staged in
+            try await compressUnstaged(url, preset: preset, resizeLongEdge: resizeLongEdge, targetBytes: targetBytes, to: staged, progress: progress)
+        }
+    }
+
+    private static func compressUnstaged(
+        _ url: URL, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void
+    ) async throws {
         guard let format = FileFormat.detect(url) else { throw YuzuError.unreadable(url) }
         switch format.category {
         case .image:
-            try await compressImage(url, format: format, preset: preset, resizeLongEdge: resizeLongEdge, targetBytes: targetBytes, to: destination, progress: progress)
+            try await compressImage(
+                url, format: format, preset: preset, resizeLongEdge: resizeLongEdge, targetBytes: targetBytes, to: destination, progress: progress)
         case .video:
             try await VideoOps.compress(url, preset: preset, targetBytes: targetBytes, to: destination, progress: progress)
         case .audio:
@@ -24,8 +37,9 @@ enum Compressor {
         switch format.category {
         case .image:
             switch format {
-            case .png, .bmp, .tiff, .svg: return .jpg
-            case .avif, .webp: return ImageIOBridge.canEncodeNatively(format) || FFmpeg.isAvailable ? format : .jpg
+            case .png: return .png  // Keep transparency and make the advertised extension deterministic.
+            case .bmp, .tiff, .svg: return .jpg
+            case .avif, .webp: return RuntimeCapabilities.snapshot.canEncodeImage(format) ? format : .jpg
             default: return format
             }
         case .video:
@@ -37,12 +51,14 @@ enum Compressor {
         }
     }
 
-    static func compressImage(_ url: URL, format: FileFormat, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    static func compressImage(
+        _ url: URL, format: FileFormat, preset: CompressionPreset, resizeLongEdge: Int, targetBytes: Int64?, to destination: URL,
+        progress: @escaping (Double) -> Void
+    ) async throws {
         var image = try ImageIOBridge.load(url)
         if resizeLongEdge > 0 { image = ImageIOBridge.resized(image, longEdge: resizeLongEdge) }
         let output = outputFormat(for: url)
-        let hasAlpha = image.alphaInfo != .none && image.alphaInfo != .noneSkipLast && image.alphaInfo != .noneSkipFirst
-        let finalFormat: FileFormat = (output == .jpg && hasAlpha && format == .png) ? .png : output
+        let finalFormat = output
         progress(0.2)
 
         guard let targetBytes else {
@@ -56,14 +72,27 @@ enum Compressor {
             return
         }
 
+        if finalFormat == .png {
+            for attempt in 0..<20 {
+                try Task.checkCancellation()
+                try ImageIOBridge.write(image, to: destination, format: .png)
+                progress(0.2 + 0.7 * Double(attempt + 1) / 20)
+                if FileSizeFormatter.size(of: destination) <= targetBytes { progress(1); return }
+                guard max(image.width, image.height) > 1 else { break }
+                image = ImageIOBridge.scaled(image, to: CGSize(width: max(1, Double(image.width) * 0.75), height: max(1, Double(image.height) * 0.75)))
+            }
+            throw YuzuError.invalidInput("The target size is too small for a valid PNG. Choose a larger size.")
+        }
+
         var low = 0.15, high = 0.95
         var candidate = image
         var attempts = 0
         var best: Double?
         while attempts < 12 {
+            try Task.checkCancellation()
             attempts += 1
             let quality = (low + high) / 2
-            try await ImageIOBridge.writeAnyFormat(candidate, to: destination, format: finalFormat == .png ? .jpg : finalFormat, quality: quality)
+            try await ImageIOBridge.writeAnyFormat(candidate, to: destination, format: finalFormat, quality: quality)
             let size = FileSizeFormatter.size(of: destination)
             progress(0.2 + 0.7 * Double(attempts) / 12)
             if size <= targetBytes {
@@ -86,12 +115,17 @@ enum Compressor {
             }
         }
         if let best {
-            try await ImageIOBridge.writeAnyFormat(candidate, to: destination, format: finalFormat == .png ? .jpg : finalFormat, quality: best)
+            try await ImageIOBridge.writeAnyFormat(candidate, to: destination, format: finalFormat, quality: best)
+        }
+        guard FileSizeFormatter.size(of: destination) <= targetBytes else {
+            throw YuzuError.invalidInput("The target size could not be reached. Choose a larger size.")
         }
         progress(1)
     }
 
-    static func compressAudio(_ url: URL, format: FileFormat, preset: CompressionPreset, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void) async throws {
+    static func compressAudio(
+        _ url: URL, format: FileFormat, preset: CompressionPreset, targetBytes: Int64?, to destination: URL, progress: @escaping (Double) -> Void
+    ) async throws {
         let info = await MediaInfo.load(url)
         var bitrate = preset.audioBitrate
         if let targetBytes, info.duration > 0 {
