@@ -1,6 +1,23 @@
+import Darwin
 import Foundation
 
 enum FileOperations {
+    static func rename(_ source: URL, to rawName: String) throws -> URL {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source.isFileURL, FileManager.default.fileExists(atPath: source.path),
+            !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains(":"),
+            !name.contains("\0"), name.utf8.count <= 255
+        else { throw YuzuError.invalidInput("Choose an existing local item and a valid name without slashes or colons.") }
+        let target = source.deletingLastPathComponent().appendingPathComponent(name)
+        guard target.standardizedFileURL != source.standardizedFileURL else { return source }
+        guard !FileManager.default.fileExists(atPath: target.path),
+            (try? target.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true
+        else { throw FileActionError.collision(name) }
+        try Task.checkCancellation()
+        try FileManager.default.moveItem(at: source, to: target)
+        return target
+    }
+
     static func copyTree(_ source: URL, to destination: URL) throws {
         try Task.checkCancellation()
         _ = try SafeArchive.safePath(source.lastPathComponent)
@@ -53,6 +70,18 @@ enum FileOperations {
         progress(1)
     }
 
+    static func duplicate(_ source: URL, to destination: URL) async throws {
+        try Task.checkCancellation()
+        guard source.isFileURL, destination.isFileURL, !FileManager.default.fileExists(atPath: destination.path),
+            !destination.resolvingSymlinksInPath().path.hasPrefix(source.resolvingSymlinksInPath().path + "/")
+        else { throw YuzuError.invalidInput("Choose a new copy name outside the source folder.") }
+        let staging = destination.deletingLastPathComponent().appendingPathComponent(".yuzu-copy-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try FileManager.default.copyItem(at: source, to: staging)
+        try Task.checkCancellation()
+        try FileManager.default.moveItem(at: staging, to: destination)
+    }
+
     static func extract(_ archive: URL, to destination: URL, selected: Set<String>? = nil, password: String? = nil, progress: @escaping (Double) -> Void)
         async throws
     {
@@ -63,4 +92,58 @@ enum FileOperations {
 
     static func inspectArchive(_ archive: URL, password: String?) async throws -> [ArchiveEntryInfo] { try SafeArchive.inspect(archive, password: password) }
 
+    static func newFolder(_ urls: [URL], name: String) async throws -> URL {
+        guard let first = urls.first, !name.isEmpty, name != ".", name != "..", name.utf8.count <= 255,
+            !name.contains("/"), !name.contains(":"), !name.contains("\0"),
+            urls.allSatisfy({ $0.deletingLastPathComponent().standardizedFileURL == first.deletingLastPathComponent().standardizedFileURL })
+        else { throw YuzuError.invalidInput("Choose a valid folder name and items from the same parent folder.") }
+        let output = first.deletingLastPathComponent().appendingPathComponent(name)
+        guard output.path.withCString({ mkdir($0, 0o700) }) == 0 else {
+            throw YuzuError.invalidInput("The new folder already exists or cannot be created. Choose another name.")
+        }
+        do { _ = try move(urls, to: output); return output } catch {
+            if (try? FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty) == true { try? FileManager.default.removeItem(at: output) }
+            throw error
+        }
+    }
+
+    static func move(_ urls: [URL], to directory: URL) throws -> [URL] {
+        let sources = FileSelection(urls: urls).urls
+        let fm = FileManager.default
+        guard !sources.isEmpty, directory.isFileURL, (try directory.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else {
+            throw YuzuError.invalidInput("Choose an existing destination folder.")
+        }
+        let resolvedDirectory = directory.resolvingSymlinksInPath().standardizedFileURL
+        var targets: [URL] = []
+        var names = Set<String>()
+        for source in sources {
+            let resolved = source.resolvingSymlinksInPath().standardizedFileURL
+            guard resolvedDirectory != resolved, !resolvedDirectory.path.hasPrefix(resolved.path + "/") else { throw FileActionError.invalidDestination }
+            let target = directory.appendingPathComponent(source.lastPathComponent)
+            guard names.insert(target.lastPathComponent.precomposedStringWithCanonicalMapping.lowercased()).inserted,
+                !fm.fileExists(atPath: target.path)
+            else { throw FileActionError.collision(target.lastPathComponent) }
+            targets.append(target)
+        }
+        var moved: [(URL, URL)] = []
+        do {
+            for (source, target) in zip(sources, targets) {
+                try Task.checkCancellation()
+                try fm.moveItem(at: source, to: target)
+                moved.append((source, target))
+            }
+        } catch {
+            var rollbackFailures: [String] = []
+            for (source, target) in moved.reversed() {
+                do { try fm.moveItem(at: target, to: source) } catch {
+                    rollbackFailures.append("\(target.path) → \(source.path): \(error.localizedDescription)")
+                }
+            }
+            if !rollbackFailures.isEmpty {
+                throw YuzuError.invalidInput("Move stopped. Some items could not be restored:\n" + rollbackFailures.joined(separator: "\n"))
+            }
+            throw error
+        }
+        return targets
+    }
 }
