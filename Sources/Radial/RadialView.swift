@@ -131,6 +131,7 @@ struct RadialWheelView: View {
     var emptyMessage: String
     var emptyDetail: String
     var geometry: RadialGeometry
+    var onActivate: ((RadialItem) -> Void)? = nil
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -201,8 +202,11 @@ struct RadialWheelView: View {
             }
             .frame(width: rect.width, height: rect.height)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(item.detail)
+            .accessibilityLabel(item.accessibilityLabel)
+            .accessibilityIdentifier("radial.item." + item.label)
             .accessibilityAddTraits(selected ? [.isSelected] : [])
+            .accessibilityAddTraits(isDragging ? [] : [.isButton])
+            .accessibilityAction { if !isDragging { onActivate?(item) } }
         }
     }
 
@@ -427,7 +431,11 @@ final class RadialView: NSView {
             isDragging: !interactive,
             emptyMessage: emptyMessage,
             emptyDetail: emptyDetail,
-            geometry: geometry
+            geometry: geometry,
+            onActivate: { [weak self] item in
+                guard let self, self.interactive, self.items.contains(item) else { return }
+                self.onSelect?(item)
+            }
         )
         setAccessibilityValue(highlighted.flatMap { items.indices.contains($0) ? items[$0].detail : nil } ?? mode.title)
     }

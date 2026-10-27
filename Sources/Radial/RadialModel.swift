@@ -80,6 +80,8 @@ enum RadialFileAction: String, CaseIterable, Hashable {
     case rename
     case airDrop
     case terminal
+    case createZIP, extractArchive, duplicate, trash, reveal, quickLook
+    case inspect, openWith, newFolder, share
 
     var title: String {
         switch self {
@@ -89,6 +91,16 @@ enum RadialFileAction: String, CaseIterable, Hashable {
         case .rename: return "Rename"
         case .airDrop: return "AirDrop"
         case .terminal: return "Terminal"
+        case .createZIP: return "Create ZIP"
+        case .extractArchive: return "Extract"
+        case .duplicate: return "Make a Copy"
+        case .trash: return "Move to Trash"
+        case .reveal: return "Reveal"
+        case .quickLook: return "Quick Look"
+        case .inspect: return "Inspect"
+        case .openWith: return "Open With"
+        case .newFolder: return "New Folder"
+        case .share: return "Share"
         }
     }
 
@@ -100,6 +112,16 @@ enum RadialFileAction: String, CaseIterable, Hashable {
         case .rename: return "pencil"
         case .airDrop: return "airplayaudio"
         case .terminal: return "terminal"
+        case .createZIP: return "archivebox"
+        case .extractArchive: return "tray.and.arrow.down"
+        case .duplicate: return "plus.square.on.square"
+        case .trash: return "trash"
+        case .reveal: return "magnifyingglass"
+        case .quickLook: return "eye"
+        case .inspect: return "info.circle"
+        case .openWith: return "app.badge"
+        case .newFolder: return "folder.badge.plus"
+        case .share: return "square.and.arrow.up"
         }
     }
 
@@ -111,6 +133,16 @@ enum RadialFileAction: String, CaseIterable, Hashable {
         case .rename: return "Rename the selected file or folder"
         case .airDrop: return "Share with AirDrop"
         case .terminal: return "Open in Terminal"
+        case .createZIP: return "Create a ZIP containing the selection"
+        case .extractArchive: return "Extract into a new folder"
+        case .duplicate: return "Create copies beside the originals"
+        case .trash: return "Move selected items to the Trash"
+        case .reveal: return "Show the selection in Finder"
+        case .quickLook: return "Preview selected items"
+        case .inspect: return "Inspect file sizes, dates and permissions"
+        case .openWith: return "Choose an installed application"
+        case .newFolder: return "Move the selection into a new folder"
+        case .share: return "Choose a macOS sharing service"
         }
     }
 }
@@ -119,6 +151,9 @@ enum RadialAction: Hashable {
     case convert(FileFormat)
     case tool(ToolID)
     case file(RadialFileAction)
+    case more([RadialItem])
+    case task(TaskID)
+    case animatedGIF
 }
 
 struct RadialItem: Identifiable, Hashable {
@@ -128,6 +163,7 @@ struct RadialItem: Identifiable, Hashable {
     let symbol: String
 
     var id: RadialAction { action }
+    var accessibilityLabel: String { label == detail ? label : label + ". " + detail }
 
     init(format: FileFormat) {
         action = .convert(format)
@@ -200,7 +236,7 @@ struct RadialContent {
 }
 
 enum RadialProvider {
-    static func content(for urls: [URL], mode: RadialMode) -> RadialContent {
+    static func content(for urls: [URL], mode: RadialMode, capabilities: BackendCapabilities = RuntimeCapabilities.snapshot) -> RadialContent {
         let selection = FileSelection(urls: urls)
         guard !selection.isEmpty else {
             return RadialContent(
@@ -220,7 +256,9 @@ enum RadialProvider {
                     items: [], emptyMessage: "Unsupported input", emptyDetail: "Conversion needs supported files", context: selection.context,
                     fileName: selection.fileName)
             }
-            let items = ConversionMatrix.targets(for: formats).map { target -> RadialItem in
+            var items = ConversionMatrix.targets(for: formats).filter { target in
+                formats.allSatisfy { capabilities.supports(from: $0, to: target) }
+            }.map { target -> RadialItem in
                 if formats.allSatisfy({ $0 == .pdf }), target == .pptx {
                     return RadialItem(action: .convert(target), label: target.displayName, detail: "PDF pages as image slides", symbol: target.category.symbol)
                 }
@@ -231,24 +269,58 @@ enum RadialProvider {
                 }
                 return RadialItem(format: target)
             }
+            if formats.count >= 2, formats.allSatisfy({ $0.category == .image }) {
+                items.append(RadialItem(action: .animatedGIF, label: "Animated GIF", detail: "Combine images as animation frames", symbol: "photo.stack"))
+            }
+            if formats.allSatisfy({ $0 == .pdf }), let index = items.firstIndex(where: { $0.action == .convert(.svg) }) {
+                items[index] = RadialItem(action: .convert(.svg), label: "SVG", detail: "PDF pages as SVG with embedded PNG", symbol: "photo")
+            }
+            if formats.allSatisfy({ $0 == .html }) {
+                items = items.map { RadialItem(action: $0.action, label: $0.label, detail: "HTML text only · no web resources loaded", symbol: $0.symbol) }
+            }
+            if items.count > 8 {
+                items =
+                    Array(items.prefix(7)) + [
+                        RadialItem(action: .more(Array(items.dropFirst(7))), label: "More", detail: "More conversion formats", symbol: "ellipsis")
+                    ]
+            }
             return RadialContent(
-                items: items, emptyMessage: "No conversions available", emptyDetail: "This selection has no compatible targets", context: selection.context,
+                items: items, emptyMessage: "No conversions available", emptyDetail: "No compatible backend is available. Check Settings.",
+                context: selection.context,
                 fileName: selection.fileName)
 
         case .tools:
             let formats = selection.urls.compactMap(FileFormat.detect)
+            if selection.urls.count == 2, !selection.containsDirectory, formats.count != 2 {
+                return RadialContent(
+                    items: [RadialItem(tool: .fileComparison)], emptyMessage: "", emptyDetail: "", context: selection.context, fileName: selection.fileName)
+            }
             guard formats.count == selection.urls.count, !selection.containsDirectory else {
                 return RadialContent(
                     items: [], emptyMessage: "Unsupported input", emptyDetail: "Tools need supported files", context: selection.context,
                     fileName: selection.fileName)
             }
-            let items = ToolID.available(for: formats).map(RadialItem.init(tool:))
+            let available = ToolID.available(for: formats).filter { capabilities.supports(tool: $0, formats: formats) }.map(RadialItem.init(tool:))
+            let items =
+                available.count > 8
+                ? Array(available.prefix(7)) + [
+                    RadialItem(action: .more(Array(available.dropFirst(7))), label: "More", detail: "More tools", symbol: "ellipsis")
+                ] : available
             return RadialContent(
                 items: items, emptyMessage: "No tools for this selection", emptyDetail: "Try a supported file type or selection size",
                 context: selection.context, fileName: selection.fileName)
 
         case .actions:
-            let items = availableFileActions(for: selection).map(RadialItem.init(fileAction:))
+            let actions = availableFileActions(for: selection).map(RadialItem.init(fileAction:))
+            let items: [RadialItem]
+            if actions.count > 8 {
+                items =
+                    Array(actions.prefix(7)) + [
+                        RadialItem(action: .more(Array(actions.dropFirst(7))), label: "More", detail: "More file actions", symbol: "ellipsis")
+                    ]
+            } else {
+                items = actions
+            }
             return RadialContent(
                 items: items, emptyMessage: "No actions available", emptyDetail: "The selected paths cannot be used", context: selection.context,
                 fileName: selection.fileName)
@@ -262,9 +334,15 @@ enum RadialProvider {
     }
 
     private static func availableFileActions(for selection: FileSelection) -> [RadialFileAction] {
-        var actions: [RadialFileAction] = [.copy, .copyPath, .move]
+        var actions: [RadialFileAction] = [.copy, .copyPath, .createZIP, .quickLook, .reveal, .move]
+        if selection.urls.allSatisfy(SafeArchive.supports) { actions.insert(.extractArchive, at: 3) }
         if selection.urls.count == 1 { actions.append(.rename) }
-        if NSSharingService(named: .sendViaAirDrop) != nil { actions.append(.airDrop) }
+        actions += [.duplicate, .trash, .inspect]
+        if !selection.containsDirectory { actions.append(.openWith) }
+        if let first = selection.urls.first, selection.urls.allSatisfy({ $0.deletingLastPathComponent() == first.deletingLastPathComponent() }) {
+            actions.append(.newFolder)
+        }
+        actions.append(.share)
         if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") != nil {
             actions.append(.terminal)
         }
@@ -272,44 +350,21 @@ enum RadialProvider {
     }
 
     private static func flowItems(for selection: FileSelection) -> [RadialItem] {
-        var items: [RadialItem] = []
+        var tasks: [TaskID] = [.smartOrganize]
+        if selection.urls.count >= 2 { tasks.insert(.batchRename, at: 0) }
         let formats = selection.urls.compactMap(FileFormat.detect)
-        if formats.count == selection.urls.count, !selection.containsDirectory, ToolID.compress.applies(to: formats) {
-            items.append(
-                RadialItem(
-                    action: .tool(.compress),
-                    label: "OPTIMIZE",
-                    detail: "Open Yuzu's compression controls",
-                    symbol: ToolID.compress.symbol
-                ))
+        if selection.urls.count >= 2, formats.count == selection.urls.count, !selection.containsDirectory,
+            RuntimeCapabilities.snapshot.supports(tool: .compress, formats: formats)
+        {
+            tasks.append(.batchOptimize)
         }
-        items.append(contentsOf: [
+        tasks += [.duplicateFinder, .fileShelf]
+        if formats.count == selection.urls.count, !selection.containsDirectory, formats.allSatisfy({ $0.category != .archive }) { tasks.append(.workflow) }
+        return tasks.map {
             RadialItem(
-                action: .file(.move),
-                label: "ORGANIZE",
-                detail: "Choose a destination folder",
-                symbol: RadialFileAction.move.symbol
-            )
-        ])
-        if selection.urls.count == 1 {
-            items.append(
-                RadialItem(
-                    action: .file(.rename),
-                    label: "RENAME",
-                    detail: "Rename the selected file or folder",
-                    symbol: RadialFileAction.rename.symbol
-                ))
+                action: .task($0), label: $0.title,
+                detail: $0 == .duplicateFinder ? "Find identical files by content; originals are kept" : $0.title, symbol: $0.symbol)
         }
-        if NSSharingService(named: .sendViaAirDrop) != nil {
-            items.append(
-                RadialItem(
-                    action: .file(.airDrop),
-                    label: "SHARE",
-                    detail: "Share with AirDrop",
-                    symbol: RadialFileAction.airDrop.symbol
-                ))
-        }
-        return items
     }
 }
 

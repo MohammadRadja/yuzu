@@ -27,6 +27,7 @@ final class RadialPanel: NSPanel {
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         hidesOnDeactivate = false
+        if ValidationRuntime.ownedGUI { level = .normal }
         acceptsMouseMovedEvents = true
         radialView.frame = contentView?.bounds ?? .zero
         radialView.autoresizingMask = [.width, .height]
@@ -49,6 +50,7 @@ final class RadialController: DragMonitorDelegate {
     private var destinationChangeCount: Int?
     private var nativeDropPrepared = false
     private let fileActions = FileActionHandler()
+    private var capabilityTask: Task<Void, Never>?
 
     weak var dragMonitor: DragMonitor?
 
@@ -108,10 +110,11 @@ final class RadialController: DragMonitorDelegate {
             hidePresentation()
             return
         }
-        panel?.makeKeyAndOrderFront(nil)
-        panel?.makeFirstResponder(panel?.radialView)
-        NSApp.activate(ignoringOtherApps: true)
-        installOutsideClickMonitor()
+        if let panel { ValidationRuntime.present(panel, activate: true) }
+        if !ValidationRuntime.ownedGUI {
+            panel?.makeFirstResponder(panel?.radialView)
+            installOutsideClickMonitor()
+        }
     }
 
     // Compatibility entry point for the menu bar and screenshot driver.
@@ -169,7 +172,14 @@ final class RadialController: DragMonitorDelegate {
         reloadItems()
         view.layoutSubtreeIfNeeded()
         visible = true
-        panel.orderFrontRegardless()
+        if ValidationRuntime.ownedGUI { panel.orderBack(nil) } else { panel.orderFrontRegardless() }
+        capabilityTask?.cancel()
+        capabilityTask = Task { [weak self] in
+            let before = RuntimeCapabilities.snapshot
+            let after = await RuntimeCapabilities.refresh()
+            guard !Task.isCancelled, let self, self.visible, before != after else { return }
+            self.reloadItems()
+        }
         return true
     }
 
@@ -243,11 +253,35 @@ final class RadialController: DragMonitorDelegate {
             switch item.action {
             case .convert(let target):
                 JobRunner.shared.convert(selectedURLs, to: target)
+            case .animatedGIF:
+                FeatureWindows.shared.show("Create Animated GIF", size: NSSize(width: 600, height: 480)) { AnimatedGIFPanel(files: selectedURLs) }
             case .tool(let tool):
                 ToolWindowManager.shared.open(tool, files: selectedURLs)
             case .file(let action):
                 fileActions.perform(action, urls: selectedURLs) { [weak self] message in self?.showError(message) }
+            case .more(let items):
+                weak var window: NSWindow?
+                window = FeatureWindows.shared.show("More", size: NSSize(width: 520, height: 480)) {
+                    MoreActionsView(items: items) { [weak self] item in
+                        window?.close()
+                        self?.dispatch(item, urls: selectedURLs)
+                    }
+                }
+            case .task(let task):
+                switch task {
+                case .fileShelf: self.showShelf(selectedURLs)
+                case .workflow: FeatureWindows.shared.show(task.title, size: NSSize(width: 760, height: 620)) { WorkflowPanel(files: selectedURLs) }
+                case .duplicateFinder:
+                    FeatureWindows.shared.show(task.title, size: NSSize(width: 760, height: 620)) { DuplicateFinderView(files: selectedURLs) }
+                default: FeatureWindows.shared.show(task.title, size: NSSize(width: 760, height: 620)) { TaskPanel(task: task, files: selectedURLs) }
+                }
             }
+        }
+    }
+
+    func showShelf(_ selection: [URL] = []) {
+        FeatureWindows.shared.show("File Shelf", size: NSSize(width: 760, height: 560)) {
+            FileShelfView(files: selection) { [weak self] urls, mode in self?.presentPicker(for: urls, mode: mode) }
         }
     }
 
@@ -265,6 +299,8 @@ final class RadialController: DragMonitorDelegate {
     func hide() { cancel() }
 
     private func hidePresentation() {
+        capabilityTask?.cancel()
+        capabilityTask = nil
         releaseTimer?.invalidate()
         releaseTimer = nil
         visible = false

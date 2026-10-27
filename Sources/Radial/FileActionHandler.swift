@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 enum FileActionError: LocalizedError {
     case emptySelection
@@ -31,22 +32,64 @@ final class FileActionHandler {
         }
 
         switch action {
-        case .copy:
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            guard pasteboard.writeObjects(selection as [NSURL]) else {
-                onError("Yuzu could not write the selection to the clipboard.")
-                return
+        case .inspect:
+            FeatureWindows.shared.show("Inspect Selection", size: NSSize(width: 640, height: 480)) { FileInspectView(files: selection) }
+        case .openWith:
+            FeatureWindows.shared.show("Open With", size: NSSize(width: 520, height: 440)) { OpenWithView(files: selection) }
+        case .share:
+            FeatureWindows.shared.show("Share Selection", size: NSSize(width: 520, height: 360)) {
+                VStack(spacing: 24) {
+                    Text("Share \(selection.count) item(s)").font(.headline)
+                    NativeShareButton(files: selection)
+                }.padding(24)
             }
-            DiagnosticLog.log("copied " + String(selection.count) + " path(s) to the pasteboard")
+        case .newFolder:
+            chooseNewFolder(for: selection, onError: onError)
+        case .createZIP, .extractArchive:
+            FeatureWindows.shared.show(action == .createZIP ? "Create ZIP" : "Extract Archive", size: NSSize(width: 720, height: 560)) {
+                ArchiveActionView(files: selection, creating: action == .createZIP)
+            }
 
-        case .copyPath:
-            let paths = selection.map(\.path).joined(separator: "\n")
-            guard NSPasteboard.general.setString(paths, forType: .string) else {
-                onError("Yuzu could not write the paths to the clipboard.")
-                return
+        case .duplicate:
+            for source in selection {
+                let directory = source.deletingLastPathComponent()
+                let isFolder = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                let output =
+                    isFolder || source.pathExtension.isEmpty
+                    ? ConversionMatrix.uniqueDirectory(directory: directory, name: source.lastPathComponent + " copy")
+                    : ConversionMatrix.uniqueURL(
+                        directory: directory, baseName: source.deletingPathExtension().lastPathComponent, suffix: "copy", ext: source.pathExtension)
+                JobRunner.shared.run(title: "Making a copy", detail: source.lastPathComponent, symbol: action.symbol) { progress in
+                    try await FileOperations.duplicate(source, to: output)
+                    progress(1)
+                    return [output]
+                }
             }
-            DiagnosticLog.log("copied " + String(selection.count) + " path(s) as text")
+
+        case .trash:
+            let alert = NSAlert()
+            alert.messageText = "Move \(selection.count) item(s) to the Trash?"
+            alert.informativeText = "You can restore them from the Trash in Finder."
+            alert.addButton(withTitle: "Move to Trash")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            for source in selection {
+                JobRunner.shared.run(title: "Moving to Trash", detail: source.lastPathComponent, symbol: action.symbol) { progress in
+                    try Task.checkCancellation()
+                    try FileManager.default.trashItem(at: source, resultingItemURL: nil)
+                    progress(1)
+                    return []
+                }
+            }
+
+        case .reveal:
+            NSWorkspace.shared.activateFileViewerSelecting(selection)
+
+        case .quickLook:
+            FilePreview.shared.show(selection)
+
+        case .copy, .copyPath:
+            do { try FileClipboard.write(selection, pathsOnly: action == .copyPath) } catch { onError(error.localizedDescription) }
 
         case .move:
             chooseMoveDestination(for: selection, onError: onError)
@@ -71,16 +114,27 @@ final class FileActionHandler {
     }
 
     private func chooseMoveDestination(for urls: [URL], onError: @escaping (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.title = "Move Selected Items"
-        panel.prompt = "Move"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.showsHiddenFiles = true
-        panel.begin { [weak self] response in
-            guard response == .OK, let destination = panel.url else { return }
+        NativeFilePicker.choose(title: "Move Selected Items", directories: true, showHiddenFiles: true, prompt: "Move") { [weak self] chosen in
+            guard let destination = chosen.first else { return }
             self?.move(urls, to: destination, onError: onError)
+        }
+    }
+
+    private func chooseNewFolder(for urls: [URL], onError: @escaping (String) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "New Folder with Selection"
+        alert.informativeText = "Move \(urls.count) item(s) into a new folder beside the originals."
+        alert.addButton(withTitle: "Create and Move")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: "New Folder with Items")
+        field.frame.size = NSSize(width: 320, height: 24)
+        alert.accessoryView = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        JobRunner.shared.run(title: "Creating folder", detail: "\(urls.count) items", symbol: "folder.badge.plus") { progress in
+            let output = try await FileOperations.newFolder(urls, name: name)
+            progress(1)
+            return [output]
         }
     }
 
@@ -114,54 +168,19 @@ final class FileActionHandler {
     }
 
     private func rename(_ source: URL, to rawName: String, onError: @escaping (String) -> Void) {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains(":") else {
-            onError("Choose a valid file or folder name without slashes or colons.")
-            return
-        }
-        let target = source.deletingLastPathComponent().appendingPathComponent(name)
-        guard target.standardizedFileURL != source.standardizedFileURL else { return }
-        guard !FileManager.default.fileExists(atPath: target.path) else {
-            onError(FileActionError.collision(name).localizedDescription)
-            return
-        }
         do {
-            try FileManager.default.moveItem(at: source, to: target)
-            DiagnosticLog.log("renamed item to " + name)
+            let target = try FileOperations.rename(source, to: rawName)
+            DiagnosticLog.log("renamed item to " + target.lastPathComponent)
         } catch {
             onError("Yuzu could not rename the item: \(error.localizedDescription)")
         }
     }
 
     private func move(_ urls: [URL], to destination: URL, onError: @escaping (String) -> Void) {
-        let sources = urls.map(\.standardizedFileURL)
-        let targetDirectory = destination.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: targetDirectory.path) else {
-            onError(FileActionError.invalidDestination.localizedDescription)
-            return
-        }
-        for source in sources {
-            guard source != targetDirectory, !targetDirectory.path.hasPrefix(source.path + "/") else {
-                onError(FileActionError.invalidDestination.localizedDescription)
-                return
-            }
-        }
-
-        let targets = sources.map { targetDirectory.appendingPathComponent($0.lastPathComponent) }
-        if let collision = targets.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            onError(FileActionError.collision(collision.lastPathComponent).localizedDescription)
-            return
-        }
-
-        Task.detached(priority: .userInitiated) {
-            do {
-                for (source, target) in zip(sources, targets) {
-                    try FileManager.default.moveItem(at: source, to: target)
-                }
-                DiagnosticLog.log("moved " + String(sources.count) + " item(s)")
-            } catch {
-                await MainActor.run { onError("Yuzu could not complete the move: \(error.localizedDescription)") }
-            }
+        JobRunner.shared.run(title: "Moving items", detail: "\(urls.count) items", symbol: "folder") { progress in
+            let outputs = try FileOperations.move(urls, to: destination)
+            progress(1)
+            return outputs
         }
     }
 }

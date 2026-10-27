@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Convert Files…", action: #selector(convertFiles), keyEquivalent: "o").target = self
         menu.addItem(withTitle: "Open Tool for Files…", action: #selector(openTool), keyEquivalent: "t").target = self
+        menu.addItem(withTitle: "File Shelf…", action: #selector(openShelf), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "About Yuzu", action: #selector(about), keyEquivalent: "").target = self
@@ -54,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openTool() {
         pickFiles { [weak self] urls in self?.radial.presentPicker(for: urls, mode: .tools) }
     }
+
+    @objc private func openShelf() { radial.showShelf() }
 
     private func pickFiles(_ completion: @escaping ([URL]) -> Void) {
         let panel = NSOpenPanel()
