@@ -201,15 +201,17 @@ enum OCROps {
             // Some virtualized Macs cannot execute Vision's accelerated path.
             // Retry once with a fresh request and only supported CPU devices.
             let fallback = makeRequest()
-            let stages = try fallback.supportedComputeStageDevices
-            guard !stages.isEmpty else { throw error }
-            for (stage, devices) in stages {
-                guard
-                    let cpu = devices.first(where: {
+            // Device enumeration can itself fail. The compatibility CPU flag
+            // also covers preprocessing outside the enumerated compute stages.
+            fallback.usesCPUOnly = true
+            if let stages = try? fallback.supportedComputeStageDevices {
+                for (stage, devices) in stages {
+                    if let cpu = devices.first(where: {
                         if case .cpu = $0 { return true }; return false
-                    })
-                else { throw error }
-                fallback.setComputeDevice(cpu, for: stage)
+                    }) {
+                        fallback.setComputeDevice(cpu, for: stage)
+                    }
+                }
             }
             try execute(VNImageRequestHandler(cgImage: image), fallback)
             request = fallback

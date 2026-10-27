@@ -627,38 +627,43 @@ struct YuzuTests {
 
         await runner.testAsync("P2 watermark exports actual image and PDF content and Vision recognizes scanned PDF") {
             try await withDocumentFixture { directory in
-                let png = directory.appendingPathComponent("source.png")
-                let image = SampleMedia.image(width: 640, height: 320, hue: 0.1)
-                try ImageIOBridge.write(image, to: png, format: .png)
-                var options = WatermarkOptions()
-                options.text = "COPY"; options.opacity = 1; options.rotation = 25
-                let output = directory.appendingPathComponent("watermarked.png")
-                try await WatermarkOps.export(png, to: output, options: options, progress: { _ in })
-                try await OutputValidator.validate(output, as: .png)
-                try expect(try Data(contentsOf: png) != Data(contentsOf: output), "watermark changes pixels")
-                let pdf = directory.appendingPathComponent("scan.pdf")
-                try ImageIOBridge.writePDF(images: [image], to: pdf)
-                let markedPDF = directory.appendingPathComponent("watermarked.pdf")
-                try await WatermarkOps.export(pdf, to: markedPDF, options: options, progress: { _ in })
-                try expectEqual(PDFDocument(url: markedPDF)?.pageCount, 1)
-                let text = try await OCROps.text(pdf, progress: { _ in })
-                try expect(text.localizedCaseInsensitiveContains("Yuzu"), "Vision recognized actual rendered text: \(text)")
-                let txt = directory.appendingPathComponent("OCR.txt")
-                try await OCROps.export(pdf, to: txt, progress: { _ in })
-                try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
-                var attempts = 0
-                let cpuText = try OCROps.recognize(image) { handler, request in
-                    attempts += 1
-                    if attempts == 1 { throw YuzuError.encodeFailed("simulated accelerated OCR failure") }
-                    for stage in try request.supportedComputeStageDevices.keys {
-                        guard case .cpu? = request.computeDevice(for: stage) else {
-                            throw TestFailure(description: "OCR retry must use supported CPU devices")
-                        }
+                var phase = "image watermark"
+                do {
+                    let png = directory.appendingPathComponent("source.png")
+                    let image = SampleMedia.image(width: 640, height: 320, hue: 0.1)
+                    try ImageIOBridge.write(image, to: png, format: .png)
+                    var options = WatermarkOptions()
+                    options.text = "COPY"; options.opacity = 1; options.rotation = 25
+                    let output = directory.appendingPathComponent("watermarked.png")
+                    try await WatermarkOps.export(png, to: output, options: options, progress: { _ in })
+                    try await OutputValidator.validate(output, as: .png)
+                    try expect(try Data(contentsOf: png) != Data(contentsOf: output), "watermark changes pixels")
+                    let pdf = directory.appendingPathComponent("scan.pdf")
+                    try ImageIOBridge.writePDF(images: [image], to: pdf)
+                    let markedPDF = directory.appendingPathComponent("watermarked.pdf")
+                    try await WatermarkOps.export(pdf, to: markedPDF, options: options, progress: { _ in })
+                    try expectEqual(PDFDocument(url: markedPDF)?.pageCount, 1)
+                    phase = "scanned PDF recognition"
+                    let text = try await OCROps.text(pdf, progress: { _ in })
+                    try expect(text.localizedCaseInsensitiveContains("Yuzu"), "Vision recognized actual rendered text: \(text)")
+                    let txt = directory.appendingPathComponent("OCR.txt")
+                    phase = "scanned PDF text export"
+                    try await OCROps.export(pdf, to: txt, progress: { _ in })
+                    try expect(try String(contentsOf: txt, encoding: .utf8).localizedCaseInsensitiveContains("Yuzu"), "OCR exported valid text")
+                    phase = "forced CPU retry"
+                    var attempts = 0
+                    let cpuText = try OCROps.recognize(image) { handler, request in
+                        attempts += 1
+                        if attempts == 1 { throw YuzuError.encodeFailed("simulated accelerated OCR failure") }
+                        try expect(request.usesCPUOnly, "OCR retry must also keep preprocessing on the CPU")
+                        try handler.perform([request])
                     }
-                    try handler.perform([request])
+                    try expectEqual(attempts, 2, "OCR retries once")
+                    try expect(cpuText.localizedCaseInsensitiveContains("Yuzu"), "CPU retry recognizes actual image text")
+                } catch {
+                    let detail = error as NSError
+                    throw TestFailure(description: "\(phase): \(String(reflecting: error)); \(detail.domain) code \(detail.code); \(detail.userInfo)")
                 }
-                try expectEqual(attempts, 2, "OCR retries once")
-                try expect(cpuText.localizedCaseInsensitiveContains("Yuzu"), "CPU retry recognizes actual image text")
             }
         }
 
